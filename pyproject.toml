@@ -1,0 +1,49 @@
+[tool.poetry]
+name = "obsidian-note-curator"
+version = "0.1.0"
+description = "AI-powered note classification system for Obsidian vaults based on expert knowledge domains"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+packages = [{include = "note_curator"}]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+llama-cpp-python = "^0.3.9"
+markdown-it-py = "^3.0.0"
+pydantic = "^2.0.0"
+rich = "^13.0.0"
+click = "^8.1.0"
+python-dotenv = "^1.0.0"
+tqdm = "^4.65.0"
+pyyaml = "^6.0"
+pathspec = "^0.11.0"
+dataclasses-json = "^0.6.0"
+beautifulsoup4 = "^4.12.2"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0.0"
+black = "^23.0.0"
+isort = "^5.12.0"
+mypy = "^1.0.0"
+pre-commit = "^3.0.0"
+
+[tool.poetry.scripts]
+curate-notes = "note_curator.cli.main:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py312']
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true 

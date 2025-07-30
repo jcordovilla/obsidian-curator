@@ -1,0 +1,44 @@
+# Vault Configuration
+vault:
+  # Path to your Obsidian vault
+  path: "/Users/jose/Documents/Obsidian/Evermd"
+  
+  # File patterns to include/exclude
+  include_patterns:
+    - "*.md"
+  exclude_patterns:
+    - "**/node_modules/**"
+    - "**/.git/**"
+    - "**/attachments/**"
+    - "**/temp/**"
+
+# Processing Configuration
+processing:
+  # Maximum number of notes to process in one batch
+  max_notes_per_batch: 20
+  
+  # Maximum characters per note (to avoid context window issues)
+  max_note_chars: 3000
+  
+  # Whether to process attachments (PDFs, images)
+  process_attachments: false
+  
+  # Whether to include frontmatter in analysis
+  include_frontmatter: true
+  
+  # Whether to normalize and structure notes that pass classification
+  normalize_notes: true
+
+# Output Configuration
+output:
+  # Directory for results
+  results_dir: "results"
+  
+  # Output formats
+  formats:
+    - "json"
+    - "markdown"
+    - "csv"
+  
+  # Whether to create detailed logs
+  detailed_logging: true 

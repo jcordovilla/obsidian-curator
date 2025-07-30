@@ -1,0 +1,138 @@
+# Classification Configuration
+classification:
+  # Expert Knowledge Pillars
+  pillars:
+    ppp_fundamentals:
+      name: "PPP Fundamentals"
+      description: "Public-private partnerships, project finance, governance models"
+      keywords:
+        - "PPP"
+        - "public-private partnership"
+        - "project finance"
+        - "infrastructure financing"
+        - "concession"
+        - "BOT"
+        - "BOOT"
+        - "PFI"
+        - "value for money"
+        - "risk allocation"
+      
+    operational_risk:
+      name: "Operational Risk Management"
+      description: "Risk management in complex infrastructure projects"
+      keywords:
+        - "operational risk"
+        - "risk management"
+        - "cyber risk"
+        - "climate risk"
+        - "resource scarcity"
+        - "risk assessment"
+        - "mitigation strategies"
+        - "contingency planning"
+      
+    value_for_money:
+      name: "Value for Money Beyond Numbers"
+      description: "Lifecycle value, resilience, and long-term outcomes"
+      keywords:
+        - "value for money"
+        - "lifecycle cost"
+        - "resilience"
+        - "adaptability"
+        - "long-term outcomes"
+        - "sustainability"
+        - "social value"
+        - "environmental impact"
+      
+    digital_transformation:
+      name: "Digital Transformation"
+      description: "BIM, data analytics, automation in infrastructure"
+      keywords:
+        - "digital transformation"
+        - "BIM"
+        - "building information modeling"
+        - "data analytics"
+        - "automation"
+        - "AI"
+        - "machine learning"
+        - "IoT"
+        - "smart infrastructure"
+        - "digital twin"
+      
+    governance_transparency:
+      name: "Governance & Transparency"
+      description: "Stakeholder alignment, open data, public trust"
+      keywords:
+        - "governance"
+        - "transparency"
+        - "stakeholder engagement"
+        - "public trust"
+        - "open data"
+        - "accountability"
+        - "communication"
+        - "participation"
+
+  # Note Types
+  note_types:
+    literature_research:
+      name: "Literature/Research Notes"
+      description: "Summaries, key points, references from academic or industry sources"
+      
+    project_workflow:
+      name: "Project Plans & Workflows"
+      description: "Step-by-step instructions, architecture overviews, process guides"
+      
+    personal_reflection:
+      name: "Personal Reflections"
+      description: "Journals, learning diaries, self-assessments, insights"
+      
+    technical_code:
+      name: "Technical/Code Notes"
+      description: "Python scripts, code explanations, tool usage, technical documentation"
+      
+    meeting_template:
+      name: "Meeting Notes & Templates"
+      description: "Meeting summaries, templates, checklists, calendar integration"
+      
+    community_event:
+      name: "Community & Events"
+      description: "Community summaries, event analyses, networking notes"
+
+  # Quality Assessment Criteria
+  quality_criteria:
+    relevance:
+      name: "Relevance to Expert Domains"
+      weight: 0.3
+      
+    depth:
+      name: "Depth of Analysis"
+      weight: 0.25
+      
+    actionability:
+      name: "Actionability"
+      weight: 0.2
+      
+    uniqueness:
+      name: "Uniqueness of Insight"
+      weight: 0.15
+      
+    structure:
+      name: "Structure and Organization"
+      weight: 0.1
+
+  # Curation Actions
+  curation_actions:
+    keep:
+      description: "Keep as-is, valuable content"
+      threshold: 0.7  # Reduced from 0.8
+      
+    refine:
+      description: "Keep but needs refinement/expansion"
+      threshold: 0.5  # Reduced from 0.6
+      
+    archive:
+      description: "Archive - not immediately useful but potentially valuable"
+      threshold: 0.3  # Reduced from 0.4
+      
+    delete:
+      description: "Delete - low value, redundant, or outdated"
+      threshold: 0.0 
