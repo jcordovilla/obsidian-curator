@@ -61,5 +61,5 @@ results/
 system_evaluation.md
 temp_evaluation_prompt.md
 
-# Models (optional - uncomment if you don't want to track large model files)
-# models/*.gguf 
+# Models (large files - exclude from git)
+models/*.gguf 
