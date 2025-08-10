@@ -90,22 +90,22 @@ def main() -> None:
         epilog="""
 Examples:
   # Curate a vault with default settings
-  obsidian-curator curate /path/to/input/vault /path/to/output/vault
+  obsidian-curator curate /Users/jose/Documents/Obsidian/Evermd /path/to/output/vault
   
   # Curate with custom quality threshold
-  obsidian-curator curate --quality-threshold 0.8 /path/to/input/vault /path/to/output/vault
+  obsidian-curator curate --quality-threshold 0.8 /Users/jose/Documents/Obsidian/Evermd /path/to/output/vault
   
   # Curate with specific target themes
-  obsidian-curator curate --target-themes infrastructure,construction /path/to/input/vault /path/to/output/vault
+  obsidian-curator curate --target-themes infrastructure,construction /Users/jose/Documents/Obsidian/Evermd /path/to/output/vault
   
   # Test on a random sample of 10 notes
-  obsidian-curator curate --sample-size 10 /path/to/input/vault /path/to/output/vault
+  obsidian-curator curate --sample-size 10 /Users/jose/Documents/Obsidian/Evermd /path/to/output/vault
   
   # Resume interrupted processing
-  obsidian-curator curate --resume /path/to/input/vault /path/to/output/vault
+  obsidian-curator curate --resume /Users/jose/Documents/Obsidian/Evermd /path/to/output/vault
   
   # Verbose logging
-  obsidian-curator curate --verbose /path/to/input/vault /path/to/output/vault
+  obsidian-curator curate --verbose /Users/jose/Documents/Obsidian/Evermd /path/to/output/vault
         """
     )
     

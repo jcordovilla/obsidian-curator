@@ -49,14 +49,45 @@ ollama pull gpt-oss:20b
 
 ## Quick Start
 
+### Prerequisites
+
+1. **Python 3.12+** with Poetry
+2. **Ollama** installed and running with at least one model (e.g., `gpt-oss:20b`)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/obsidian-curator.git
+cd obsidian-curator
+
+# Install Poetry if you don't have it
+curl -sSL https://install.python-poetry.org | python3 -
+
+# Install project dependencies
+poetry install
+```
+
 ### Using Poetry
 
 ```bash
-# Activate the Poetry shell
+# Activate the virtual environment
 poetry shell
 
-# Or run commands directly with poetry run
-poetry run python your_script.py
+# Or run commands directly
+poetry run obsidian-curator --help
+```
+
+### Basic Usage
+
+The system processes raw notes from your Obsidian vault and outputs curated, cleaned content. The `my-writings/` folder contains examples of your final published work to demonstrate the target quality and style.
+
+```bash
+# Test with a small sample first
+poetry run obsidian-curator curate --sample-size 5 /Users/jose/Documents/Obsidian/Evermd test-curated-vault
+
+# Full curation of your vault
+poetry run obsidian-curator curate /Users/jose/Documents/Obsidian/Evermd curated-vault
 ```
 
 ### Command Line Interface

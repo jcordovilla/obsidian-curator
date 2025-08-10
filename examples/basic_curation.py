@@ -30,8 +30,8 @@ def main():
     curator = ObsidianCurator(config)
     
     # Paths
-    input_vault = Path("my-writings")  # Your input vault path
-    output_vault = Path("curated-vault")  # Your output vault path
+    input_vault = Path("/Users/jose/Documents/Obsidian/Evermd")  # Your raw Obsidian vault
+    output_vault = Path("curated-vault")  # Output for curated notes
     
     print(f"Starting curation of vault: {input_vault}")
     print(f"Output will be saved to: {output_vault}")
