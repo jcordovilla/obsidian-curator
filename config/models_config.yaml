@@ -1,39 +1,30 @@
-# Optimized LLM Models Configuration - Performance Focused
-# Implements model hierarchy for maximum efficiency
+# Ollama Models Configuration - Performance Focused
+# Uses Ollama API for model management instead of local files
 
 models:
   # Quick filter model (fastest, smallest context) - Phi-2
   quick_filter:
-    path: "models/phi-2.gguf"
+    ollama_model: "phi2"
     context_window: 512  # Reduced for speed
     max_tokens: 32       # Minimal tokens for quick decisions
     temperature: 0.01    # Very low for consistent results
     top_p: 0.99
-    n_gpu_layers: 0      # CPU only
-    n_threads: 4         # Optimized for speed
-    batch_size: 16       # Increased for efficiency
     
   # Fast classification model (optimized for speed) - Phi-2
   fast_classification:
-    path: "models/phi-2.gguf"
+    ollama_model: "phi2"
     context_window: 1024 # Reduced for speed
     max_tokens: 128      # Reduced for faster responses
     temperature: 0.05    # Low for consistency
     top_p: 0.95
-    n_gpu_layers: 0      # CPU only
-    n_threads: 6         # Optimized for speed
-    batch_size: 8        # Increased for efficiency
     
   # Detailed analysis model (quality focused) - Llama 3.1 8B
   detailed_analysis:
-    path: "models/llama-3.1-8b-instruct-q6_k.gguf"
+    ollama_model: "llama3.1:8b"
     context_window: 4096 # Reduced from 8192 for speed
     max_tokens: 512      # Reduced for faster responses
     temperature: 0.1     # Balanced for quality/speed
     top_p: 0.9
-    n_gpu_layers: 0      # CPU only
-    n_threads: 8         # Optimized for macOS
-    batch_size: 2        # Reduced for memory efficiency
 
 # Performance optimization settings
 performance:
@@ -51,19 +42,17 @@ performance:
   min_content_length: 50
   max_content_length: 2000  # Reduced for speed
   
-  # Model optimization
-  use_quantized_models: true
-  enable_gpu_acceleration: false
-  optimize_memory_usage: true
+  # Ollama settings
+  ollama_base_url: "http://localhost:11434"
+  request_timeout: 30
+  max_retries: 3
 
-# Fallback configuration - CPU optimized
+# Fallback configuration
 fallback:
-  model_path: "models/phi-2.gguf"  # Use Phi-2 as fallback
+  ollama_model: "phi2"  # Use Phi-2 as fallback
   context_window: 1024
   max_tokens: 128
   temperature: 0.1
-  n_gpu_layers: 0
-  n_threads: 6
 
 # Processing pipeline configuration
 pipeline:
@@ -87,20 +76,19 @@ pipeline:
 environment:
   # macOS specific settings
   macos:
-    use_metal: false
-    cpu_threads: 8
-    memory_efficient: true
+    ollama_base_url: "http://localhost:11434"
+    request_timeout: 30
     
   # Linux specific settings
   linux:
-    use_cuda: false
-    cpu_threads: 8
-    memory_efficient: true
+    ollama_base_url: "http://localhost:11434"
+    request_timeout: 30
 
 # Optimization notes:
+# - Uses Ollama API instead of local model files
 # - Reduced context windows for faster processing
 # - Implemented model hierarchy (Phi-2 -> Llama 3.1 8B)
 # - Added early termination logic
-# - Optimized for CPU-only processing
 # - Increased caching for better performance
-# - Reduced content length limits for speed 
+# - Reduced content length limits for speed
+# - Configurable Ollama base URL and timeouts 

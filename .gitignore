@@ -61,5 +61,5 @@ results/
 system_evaluation.md
 temp_evaluation_prompt.md
 
-# Models (large files - exclude from git)
-models/*.gguf 
+# Models (Ollama manages these externally)
+# No local model files needed 
