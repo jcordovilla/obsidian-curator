@@ -1,49 +1,48 @@
 [tool.poetry]
-name = "obsidian-note-curator"
+name = "obsidian-curator"
 version = "0.1.0"
-description = "AI-powered note classification system for Obsidian vaults based on expert knowledge domains"
-authors = ["Your Name <your.email@example.com>"]
+description = "AI-powered curation system for Obsidian vaults that automatically analyzes, categorizes, and organizes your notes using local AI models via Ollama"
+authors = ["Jose Cordovilla <jose@example.com>"]
 readme = "README.md"
-packages = [{include = "note_curator"}]
+packages = [{include = "obsidian_curator"}]
 
 [tool.poetry.dependencies]
 python = "^3.12"
-requests = "^2.31.0"
-markdown-it-py = "^3.0.0"
-pydantic = "^2.0.0"
-rich = "^13.0.0"
-click = "^8.1.0"
-python-dotenv = "^1.0.0"
-tqdm = "^4.65.0"
-pyyaml = "^6.0"
-pathspec = "^0.11.0"
-dataclasses-json = "^0.6.0"
+pydantic = "^2.5.0"
+markdown = "^3.5.1"
 beautifulsoup4 = "^4.12.2"
+lxml = "^4.9.3"
+ollama = "^0.1.7"
+loguru = "^0.7.2"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^7.4.3"
+pytest-cov = "^4.1.0"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^7.0.0"
-black = "^23.0.0"
+black = "^23.11.0"
 isort = "^5.12.0"
-mypy = "^1.0.0"
-pre-commit = "^3.0.0"
+flake8 = "^6.1.0"
+mypy = "^1.7.1"
 
 [tool.poetry.scripts]
-curate-notes = "note_curator.cli.main:main"
+obsidian-curator = "obsidian_curator.cli:main"
 
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.poetry.urls]
+Homepage = "https://github.com/yourusername/obsidian-curator"
+Repository = "https://github.com/yourusername/obsidian-curator"
+Issues = "https://github.com/yourusername/obsidian-curator/issues"
 
 [tool.black]
 line-length = 88
-target-version = ['py312']
+target-version = ['py39']
 
 [tool.isort]
 profile = "black"
 multi_line_output = 3
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
-disallow_untyped_defs = true 
+disallow_untyped_defs = true

@@ -1,174 +1,306 @@
-# Obsidian Note Curator
+# Obsidian Curator
 
-An AI-powered note classification system designed to curate Obsidian vaults based on expert knowledge domains and personal knowledge management (PKM) principles.
+An AI-powered curation system for Obsidian vaults that automatically analyzes, categorizes, and organizes your notes using local AI models via Ollama.
 
-## 🚀 Quick Start
+## Features
 
-### 1. Install Dependencies
+- **AI-Powered Analysis**: Uses Ollama with local AI models to analyze note quality and relevance
+- **Intelligent Curation**: Automatically determines which notes meet your curation criteria
+- **Theme Classification**: Organizes notes into hierarchical themes (infrastructure, construction, economics, etc.)
+- **Content Processing**: Cleans and processes various content types including web clippings and markdown
+- **Vault Organization**: Creates a well-structured curated vault with metadata and statistics
+- **Flexible Configuration**: Customizable quality thresholds, target themes, and processing options
+
+## Installation
+
+### Prerequisites
+
+1. **Python 3.12+** with Poetry
+2. **Ollama** installed and running with at least one model (e.g., `gpt-oss:20b`)
+
+### Install Ollama
+
 ```bash
-# Install Poetry if you haven't already
+# macOS
+brew install ollama
+
+# Linux
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Windows
+# Download from https://ollama.ai/download
+```
+
+### Install Python Dependencies
+
+```bash
+# Install Poetry if you don't have it
 curl -sSL https://install.python-poetry.org | python3 -
 
 # Install project dependencies
 poetry install
 ```
 
-### 2. Configure Your Vault
-Edit `config/vault_config.yaml` to point to your Obsidian vault:
-```yaml
-vault:
-  path: "/path/to/your/obsidian/vault"
-```
-
-### 3. Run Analysis
-```bash
-# Process your entire vault
-poetry run python scripts/process_vault.py
-
-# Or test with a sample first
-poetry run python scripts/test_classification_system.py
-```
-
-## 📁 Project Structure
-
-```
-Obsidian-curator/
-├── 📂 config/                 # Configuration files
-│   ├── vault_config.yaml     # Vault paths and settings
-│   ├── classification_config.yaml  # Expert pillars and criteria
-│   └── models_config.yaml    # LLM model configurations
-├── 📂 note_curator/          # Main package (core functionality)
-├── 📂 scripts/               # Main execution scripts
-│   ├── process_vault.py      # Process entire vault
-│   ├── test_classification_system.py  # System testing
-│   ├── analyze_test_results.py  # Results analysis
-│   ├── human_validation_classification.py  # Human validation interface
-│   ├── analyze_validation_results.py  # Validation analysis
-│   ├── test_human_validation.py  # Validation testing
-│   └── run_validation_demo.py  # Validation demo
-├── 📂 tools/                 # Utility tools and examples
-├── 📂 docs/                  # Comprehensive documentation
-├── 📂 results/               # Analysis results and reports
-│   ├── test_runs/           # AI classification results
-│   ├── full_runs/           # Full vault processing results
-│   └── human_validation/    # Human validation sessions and analysis
-├── 📂 models/                # LLM model files
-└── 📄 README.md              # This file
-```
-
-## 🎯 Key Features
-
-- **Domain-Aware Classification**: Based on your expert pillars (PPP, Infrastructure, Digital Transformation)
-- **Hybrid Model Approach**: Llama 3.2 1B for speed, Llama 3.1 8B for quality
-- **Batch Processing**: Efficiently processes large vaults
-- **Rich Output**: Detailed analysis with confidence scores and reasoning
-- **Professional CLI**: Progress tracking and comprehensive reporting
-- **Human-in-the-Loop Validation**: Interactive review and validation of AI classifications
-
-## 🏛️ Expert Pillars
-
-The system is designed around these knowledge domains:
-
-1. **PPP Fundamentals** - Public-private partnerships, project finance, governance
-2. **Operational Risk** - Risk management in complex infrastructure projects
-3. **Value for Money** - Lifecycle value, resilience, and long-term outcomes
-4. **Digital Transformation** - BIM, data analytics, automation
-5. **Governance & Transparency** - Stakeholder alignment, open data
-
-## 👤 Human-in-the-Loop Validation
-
-The system now includes comprehensive human validation capabilities:
-
-### **Interactive Review Process**
-- **AI Classification**: System processes notes using expert criteria
-- **Human Validation**: Interactive interface for reviewing AI decisions
-- **Feedback Collection**: Capture human reasoning and confidence levels
-- **Disagreement Analysis**: Identify patterns in human-AI disagreements
-
-### **Validation Tools**
-- **`human_validation_classification.py`** - Interactive classification validation interface
-- **`review_classification_results.py`** - Legacy review interface
-- **`analyze_validation_results.py`** - Analysis of validation patterns
-- **`test_human_validation_pipeline.py`** - Complete validation workflow
-
-### **Benefits**
-- **Quality Assurance**: Human oversight of AI decisions
-- **System Improvement**: Data-driven refinement of classification criteria
-- **Trust Building**: Transparent decision-making process
-- **Iterative Learning**: Continuous improvement through feedback
-
-### **New Human Validation Interface**
-The system now includes a dedicated classification validation interface:
+### Pull an AI Model
 
 ```bash
-# Run the interactive validation interface
-python3 scripts/human_validation_classification.py
-
-# Test the validation logic
-python3 scripts/test_human_validation.py
+ollama pull gpt-oss:20b
 ```
 
-**Features:**
-- **Interactive Note Review**: Display note content and AI classifications
-- **Human Input Collection**: Collect human judgments on classifications
-- **Agreement Analysis**: Track human-AI agreement rates
-- **Quality Assessment**: Compare AI and human quality scores
-- **Improvement Recommendations**: Generate actionable insights
-- **Results Export**: Save validation data for analysis
+## Quick Start
 
-See [Human Validation Documentation](docs/HUMAN_VALIDATION.md) for detailed usage instructions.
-
-## 📖 Documentation
-
-- **[Setup Guide](docs/SETUP.md)** - Complete setup and configuration instructions
-- **[Testing Guide](docs/TESTING_GUIDE.md)** - How to test and validate the system
-- **[Content Processing](docs/CONTENT_PROCESSING.md)** - Evernote cleanup and note normalization
-- **[Performance Guide](docs/PERFORMANCE.md)** - Optimization and performance tips
-- **[Overhaul Summary](docs/OVERHAUL_SUMMARY.md)** - System transformation details
-
-## 🔧 Configuration
-
-The system uses YAML configuration files in the `config/` directory:
-
-- **`vault_config.yaml`** - Vault paths and processing settings
-- **`classification_config.yaml`** - Expert pillars and classification criteria
-- **`models_config.yaml`** - LLM model configurations
-
-## 📊 Output
-
-Results are organized in the `results/` directory:
-
-- **JSON files** - Complete analysis data for programmatic access
-- **Markdown reports** - Human-readable summaries and recommendations
-- **Normalized notes** - Structured and templated notes (when enabled)
-
-## 🛠️ Development
-
-For development and testing:
+### Using Poetry
 
 ```bash
-# Run system tests
-poetry run python scripts/test_classification_system.py
+# Activate the Poetry shell
+poetry shell
 
-# Test optimized pipeline
-poetry run python scripts/test_optimized_pipeline.py
-
-# Advanced evaluation
-poetry run python scripts/test_self_evaluating_pipeline.py
-
-# Analyze test results
-poetry run python scripts/analyze_test_results.py
-
-# Human-in-the-loop validation (NEW!)
-poetry run python scripts/test_human_validation_pipeline.py
-
-# Review AI classifications manually
-poetry run python scripts/review_classification_results.py
-
-# Analyze validation results
-poetry run python scripts/analyze_validation_results.py
+# Or run commands directly with poetry run
+poetry run python your_script.py
 ```
 
-## 📝 License
+### Command Line Interface
 
-This project is designed for personal knowledge management and infrastructure consulting domains. 
+The easiest way to use Obsidian Curator is through the command line:
+
+```bash
+# Basic curation with default settings
+poetry run obsidian-curator curate /path/to/input/vault /path/to/output/vault
+
+# Custom quality threshold
+poetry run obsidian-curator curate --quality-threshold 0.8 /path/to/input/vault /path/to/output/vault
+
+# Target specific themes
+poetry run obsidian-curator curate --target-themes infrastructure,construction /path/to/input/vault /path/to/output/vault
+
+# Verbose logging
+poetry run obsidian-curator curate --verbose /path/to/input/vault /path/to/output/vault
+
+# Dry run (see what would be done without doing it)
+poetry run obsidian-curator curate --dry-run /path/to/input/vault /path/to/output/vault
+```
+
+### Programmatic Usage
+
+```python
+from pathlib import Path
+from obsidian_curator import ObsidianCurator, CurationConfig
+
+# Configuration
+config = CurationConfig(
+    ai_model="gpt-oss:20b",
+    quality_threshold=0.7,
+    relevance_threshold=0.6,
+    target_themes=["infrastructure", "construction", "economics"]
+)
+
+# Create curator
+curator = ObsidianCurator(config)
+
+# Curate vault
+stats = curator.curate_vault(
+    input_path=Path("my-writings"),
+    output_path=Path("curated-vault")
+)
+
+print(f"Curated {stats.curated_notes}/{stats.total_notes} notes")
+```
+
+## Configuration
+
+### CurationConfig Options
+
+- **`ai_model`**: Ollama model to use (default: `"gpt-oss:20b"`)
+- **`quality_threshold`**: Minimum quality score for curation (0.0-1.0, default: 0.7)
+- **`relevance_threshold`**: Minimum relevance score for curation (0.0-1.0, default: 0.6)
+- **`max_tokens`**: Maximum tokens for AI analysis (default: 2000)
+- **`target_themes`**: List of target themes to focus on (default: infrastructure themes)
+- **`preserve_metadata`**: Whether to preserve original note metadata (default: True)
+- **`clean_html`**: Whether to clean HTML content (default: True)
+
+### Default Theme Hierarchy
+
+The system comes with a predefined theme hierarchy focused on infrastructure and construction:
+
+- **infrastructure/**
+  - **ppps**: Public-private partnerships
+  - **resilience**: Climate adaptation, disaster recovery
+  - **financing**: Funding, investment, economic analysis
+  - **governance**: Regulation, policy, legal framework
+  - **technology**: Innovation, digital transformation
+- **construction/**
+  - **projects**: Project management, construction projects
+  - **best_practices**: Standards, guidelines, methodologies
+  - **materials**: Construction materials, sustainability
+  - **safety**: Risk management, health and safety
+- **economics/**
+  - **development**: Economic development, regional planning
+  - **investment**: Investment analysis, cost-benefit analysis
+  - **markets**: Market analysis, industry trends
+- **sustainability/**
+  - **environmental**: Environmental impact, climate change
+  - **social**: Social impact, community development
+  - **economic**: Economic sustainability, long-term value
+- **governance/**
+  - **policy**: Public policy, regulatory framework
+  - **institutions**: Government institutions, regulatory bodies
+  - **transparency**: Accountability, public participation
+
+## How It Works
+
+### 1. Note Discovery
+- Scans your Obsidian vault for markdown files
+- Skips system files, templates, and non-content directories
+- Sorts notes by modification date (newest first)
+
+### 2. Content Processing
+- Extracts metadata from YAML frontmatter
+- Determines content type (web clipping, personal note, etc.)
+- Cleans HTML content if needed
+- Preserves important metadata
+
+### 3. AI Analysis
+- Uses Ollama to analyze note quality across multiple dimensions:
+  - Overall quality
+  - Relevance to target themes
+  - Completeness of ideas
+  - Credibility of source
+  - Clarity of expression
+- Identifies themes and assigns confidence scores
+- Determines curation decision based on thresholds
+
+### 4. Theme Classification
+- Maps identified themes to the predefined hierarchy
+- Uses fuzzy matching for theme names
+- Creates nested folder structures for subthemes
+
+### 5. Vault Organization
+- Creates organized folder structure by themes
+- Saves curated notes with enhanced metadata
+- Generates comprehensive reports and statistics
+- Preserves curation history and reasoning
+
+## Output Structure
+
+The curated vault contains:
+
+```
+curated-vault/
+├── infrastructure/
+│   ├── ppps/
+│   ├── financing/
+│   └── governance/
+├── construction/
+│   ├── projects/
+│   └── best_practices/
+├── economics/
+├── sustainability/
+├── governance/
+├── miscellaneous/
+└── metadata/
+    ├── curation-log.md
+    ├── theme-analysis.md
+    ├── configuration.json
+    └── statistics.json
+```
+
+## Examples
+
+See the `examples/` directory for complete working examples:
+
+- **`basic_curation.py`**: Simple example of basic vault curation
+- **`advanced_curation.py`**: Advanced usage with custom configuration and detailed analysis
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Ollama Connection Error**
+   - Ensure Ollama is running: `ollama serve`
+   - Check if the specified model is available: `ollama list`
+
+2. **No Notes Found**
+   - Verify the input path contains markdown files
+   - Check if notes are in subdirectories
+
+3. **Low Curation Rate**
+   - Lower quality or relevance thresholds
+   - Check if target themes match your content
+   - Review AI model performance
+
+4. **Memory Issues**
+   - Reduce `max_tokens` in configuration
+   - Process smaller vaults in batches
+
+### Debug Mode
+
+Use verbose logging to see detailed information:
+
+```bash
+poetry run obsidian-curator curate --verbose /path/to/input/vault /path/to/output/vault
+```
+
+### Poetry Commands
+
+```bash
+# Check Poetry environment
+poetry env info
+
+# List installed packages
+poetry show
+
+# Add new dependencies
+poetry add package-name
+
+# Add development dependencies
+poetry add --group dev package-name
+
+# Update dependencies
+poetry update
+```
+
+## Development
+
+**Note**: This project requires Python 3.12+ and uses Poetry for dependency management.
+
+### Project Structure
+
+```
+obsidian_curator/
+├── __init__.py          # Package initialization
+├── core.py              # Main orchestration logic
+├── models.py            # Data models and schemas
+├── content_processor.py # Content processing and cleaning
+├── ai_analyzer.py       # AI-powered analysis using Ollama
+├── theme_classifier.py  # Theme classification and organization
+├── vault_organizer.py   # Vault organization and file management
+└── cli.py               # Command-line interface
+```
+
+### Running Tests
+
+```bash
+# Run tests using Poetry
+poetry run pytest
+
+# Or run the basic functionality test
+poetry run python test_basic_functionality.py
+```
+
+### Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- Built with [Ollama](https://ollama.ai) for local AI inference
+- Uses [Pydantic](https://pydantic.dev) for data validation
+- Powered by [Loguru](https://loguru.readthedocs.io) for logging
