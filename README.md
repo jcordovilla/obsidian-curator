@@ -32,7 +32,7 @@ poetry run python scripts/test_classification_system.py
 ## 📁 Project Structure
 
 ```
-Obsidian-test2/
+Obsidian-curator/
 ├── 📂 config/                 # Configuration files
 │   ├── vault_config.yaml     # Vault paths and settings
 │   ├── classification_config.yaml  # Expert pillars and criteria
@@ -41,12 +41,13 @@ Obsidian-test2/
 ├── 📂 scripts/               # Main execution scripts
 │   ├── process_vault.py      # Process entire vault
 │   ├── test_classification_system.py  # System testing
-│   └── review_classification_results.py  # Results review
+│   ├── test_optimized_pipeline.py  # Pipeline testing
+│   ├── test_self_evaluating_pipeline.py  # Advanced evaluation
+│   └── analyze_test_results.py  # Results analysis
 ├── 📂 tools/                 # Utility tools and examples
 ├── 📂 docs/                  # Comprehensive documentation
 ├── 📂 results/               # Analysis results and reports
 ├── 📂 models/                # LLM model files
-├── 📂 legacy/                # Old system files (reference only)
 └── 📄 README.md              # This file
 ```
 
@@ -97,14 +98,14 @@ Results are organized in the `results/` directory:
 For development and testing:
 
 ```bash
-# Run system tests (recommended - no warnings)
-poetry run python scripts/run_quiet.py
-
-# Run system tests (with warnings)
+# Run system tests
 poetry run python scripts/test_classification_system.py
 
-# Run utility examples
-poetry run python tools/example_usage.py
+# Test optimized pipeline
+poetry run python scripts/test_optimized_pipeline.py
+
+# Advanced evaluation
+poetry run python scripts/test_self_evaluating_pipeline.py
 
 # Analyze test results
 poetry run python scripts/analyze_test_results.py
