@@ -63,22 +63,35 @@ class LLMManager:
         
         for model_type, config in model_configs.items():
             try:
+                # Try relative to config file first, then relative to current directory
                 model_path = Path(config["path"])
                 if not model_path.exists():
-                    logger.warning(f"Model not found: {model_path} for {model_type}")
-                    # Try fallback model if available
-                    fallback_config = self.config.get("fallback", {})
-                    if fallback_config and "model_path" in fallback_config:
-                        fallback_path = Path(fallback_config["model_path"])
-                        if fallback_path.exists():
-                            logger.info(f"Using fallback model for {model_type}: {fallback_path}")
-                            config = fallback_config
-                            model_path = fallback_path
-                        else:
-                            logger.error(f"Fallback model also not found: {fallback_path}")
-                            continue
-                    else:
-                        continue
+                    # Try relative to config file location
+                    config_dir = self.config_path.parent
+                    model_path = config_dir / config["path"]
+                    if not model_path.exists():
+                        # Try relative to project root (assuming config is in project root)
+                        project_root = config_dir.parent
+                        model_path = project_root / config["path"]
+                        if not model_path.exists():
+                            logger.warning(f"Model not found: {config['path']} for {model_type}")
+                            # Try fallback model if available
+                            fallback_config = self.config.get("fallback", {})
+                            if fallback_config and "model_path" in fallback_config:
+                                fallback_path = Path(fallback_config["model_path"])
+                                if not fallback_path.exists():
+                                    fallback_path = config_dir / fallback_config["model_path"]
+                                    if not fallback_path.exists():
+                                        fallback_path = project_root / fallback_config["model_path"]
+                                if fallback_path.exists():
+                                    logger.info(f"Using fallback model for {model_type}: {fallback_path}")
+                                    config = fallback_config
+                                    model_path = fallback_path
+                                else:
+                                    logger.error(f"Fallback model also not found: {fallback_config['model_path']}")
+                                    continue
+                            else:
+                                continue
                 
                 self.models[model_type] = Llama(
                     model_path=str(model_path),
@@ -101,6 +114,12 @@ class LLMManager:
                     fallback_config = self.config.get("fallback", {})
                     if fallback_config and "model_path" in fallback_config:
                         fallback_path = Path(fallback_config["model_path"])
+                        if not fallback_path.exists():
+                            config_dir = self.config_path.parent
+                            fallback_path = config_dir / fallback_config["model_path"]
+                            if not fallback_path.exists():
+                                project_root = config_dir.parent
+                                fallback_path = project_root / fallback_config["model_path"]
                         if fallback_path.exists():
                             logger.info(f"Using fallback model for {model_type}: {fallback_path}")
                             self.models[model_type] = Llama(
@@ -118,9 +137,6 @@ class LLMManager:
                             logger.info(f"Fallback model initialized for {model_type}")
                 except Exception as fallback_error:
                     logger.error(f"Fallback model also failed for {model_type}: {fallback_error}")
-                
-            except Exception as e:
-                logger.error(f"Failed to initialize {model_type} model: {e}")
     
     def _get_cache_key(self, content: str, task: str) -> str:
         """Generate cache key for content and task."""
