@@ -98,6 +98,12 @@ Examples:
   # Curate with specific target themes
   obsidian-curator curate --target-themes infrastructure,construction /path/to/input/vault /path/to/output/vault
   
+  # Test on a random sample of 10 notes
+  obsidian-curator curate --sample-size 10 /path/to/input/vault /path/to/output/vault
+  
+  # Resume interrupted processing
+  obsidian-curator curate --resume /path/to/input/vault /path/to/output/vault
+  
   # Verbose logging
   obsidian-curator curate --verbose /path/to/input/vault /path/to/output/vault
         """
@@ -121,6 +127,8 @@ Examples:
                               help='Maximum tokens for AI analysis (default: 2000)')
     curate_parser.add_argument('--target-themes', 
                               help='Comma-separated list of target themes')
+    curate_parser.add_argument('--sample-size', type=int,
+                              help='Process only a random sample of N notes for testing')
     curate_parser.add_argument('--no-preserve-metadata', action='store_true',
                               help='Do not preserve original metadata')
     curate_parser.add_argument('--no-clean-html', action='store_true',
@@ -131,6 +139,8 @@ Examples:
                               help='Enable verbose logging')
     curate_parser.add_argument('--dry-run', action='store_true',
                               help='Show what would be done without actually doing it')
+    curate_parser.add_argument('--resume', action='store_true',
+                              help='Resume processing from last checkpoint if available')
     
     # Parse arguments
     args = parser.parse_args()
@@ -177,6 +187,7 @@ def run_curate(args: argparse.Namespace) -> None:
         relevance_threshold=args.relevance_threshold,
         max_tokens=args.max_tokens,
         target_themes=args.target_themes.split(',') if args.target_themes else [],
+        sample_size=args.sample_size,
         preserve_metadata=not args.no_preserve_metadata,
         clean_html=not args.no_clean_html
     )
@@ -189,6 +200,8 @@ def run_curate(args: argparse.Namespace) -> None:
         logger.info(f"Would use AI model: {config.ai_model}")
         logger.info(f"Quality threshold: {config.quality_threshold}")
         logger.info(f"Relevance threshold: {config.relevance_threshold}")
+        if config.sample_size:
+            logger.info(f"Sample size: {config.sample_size} notes (random sample)")
         return
     
     # Create curator and run

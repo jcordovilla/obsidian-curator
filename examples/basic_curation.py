@@ -21,6 +21,7 @@ def main():
             "sustainability",
             "governance"
         ],
+        sample_size=5,  # Process only 5 notes for testing
         preserve_metadata=True,
         clean_html=True
     )

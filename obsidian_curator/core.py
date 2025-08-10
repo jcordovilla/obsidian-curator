@@ -44,6 +44,9 @@ class ObsidianCurator:
         Returns:
             CurationStats object with processing statistics
         """
+        import time
+        start_time = time.time()
+        
         logger.info(f"Starting vault curation from {input_path} to {output_path}")
         
         # Step 1: Discover and process notes
@@ -65,6 +68,9 @@ class ObsidianCurator:
         stats = self.vault_organizer.create_curated_vault(
             curation_results, output_path, vault_structure
         )
+        
+        # Update processing time
+        stats.processing_time = time.time() - start_time
         
         logger.info("Vault curation completed successfully")
         return stats
@@ -89,6 +95,13 @@ class ObsidianCurator:
         
         # Sort by modification date (newest first)
         notes.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        
+        # Apply sample size if configured
+        if self.config.sample_size and self.config.sample_size < len(notes):
+            import random
+            random.seed(42)  # Fixed seed for reproducible results
+            notes = random.sample(notes, self.config.sample_size)
+            logger.info(f"Randomly sampled {len(notes)} notes from {len(notes)} total notes")
         
         return notes
     
@@ -129,7 +142,7 @@ class ObsidianCurator:
         return False
     
     def _process_notes(self, note_paths: List[Path]) -> List[Any]:
-        """Process and clean note content.
+        """Process a list of note files.
         
         Args:
             note_paths: List of note file paths
@@ -137,16 +150,21 @@ class ObsidianCurator:
         Returns:
             List of processed Note objects
         """
+        from tqdm import tqdm
+        
         processed_notes = []
         
-        for file_path in note_paths:
-            try:
-                note = self.content_processor.process_note(file_path)
-                processed_notes.append(note)
-                logger.debug(f"Processed note: {note.title}")
-            except Exception as e:
-                logger.error(f"Failed to process {file_path}: {e}")
-                continue
+        with tqdm(total=len(note_paths), desc="Processing notes", unit="note") as pbar:
+            for note_path in note_paths:
+                try:
+                    note = self.content_processor.process_note(note_path)
+                    processed_notes.append(note)
+                except Exception as e:
+                    logger.error(f"Failed to process {note_path}: {e}")
+                    # Continue with other notes
+                
+                pbar.update(1)
+                pbar.set_postfix({"Processed": len(processed_notes)})
         
         return processed_notes
     
@@ -159,43 +177,47 @@ class ObsidianCurator:
         Returns:
             List of curation results
         """
+        from tqdm import tqdm
+        
         curation_results = []
         
-        for note in notes:
-            try:
-                # AI analysis
-                quality_scores, themes, curation_reason = self.ai_analyzer.analyze_note(note)
+        with tqdm(total=len(notes), desc="AI Analysis", unit="note") as pbar:
+            for note in notes:
+                try:
+                    # Analyze note quality and themes
+                    quality_scores, themes, curation_reason = self.ai_analyzer.analyze_note(note)
+                    
+                    # Determine if note should be curated
+                    is_curated = self._should_curate_note(quality_scores, themes)
+                    
+                    # Create curation result
+                    result = CurationResult(
+                        note=note,
+                        cleaned_content=note.content,  # Already cleaned during processing
+                        quality_scores=quality_scores,
+                        themes=themes,
+                        is_curated=is_curated,
+                        curation_reason=curation_reason
+                    )
+                    
+                    curation_results.append(result)
+                    
+                except Exception as e:
+                    logger.error(f"Failed to curate note {note.title}: {e}")
+                    # Create a failed result
+                    failed_result = CurationResult(
+                        note=note,
+                        cleaned_content=note.content,
+                        quality_scores=self._default_quality_scores(),
+                        themes=[self._default_theme()],
+                        is_curated=False,
+                        curation_reason=f"Processing failed: {str(e)}",
+                        processing_notes=[f"Error: {str(e)}"]
+                    )
+                    curation_results.append(failed_result)
                 
-                # Determine if note should be curated
-                is_curated = self._should_curate_note(quality_scores, themes)
-                
-                # Create curation result
-                result = CurationResult(
-                    note=note,
-                    cleaned_content=note.content,  # Could be enhanced with cleaning
-                    quality_scores=quality_scores,
-                    themes=themes,
-                    is_curated=is_curated,
-                    curation_reason=curation_reason,
-                    processing_notes=[]
-                )
-                
-                curation_results.append(result)
-                logger.debug(f"Curated note: {note.title} (curated: {is_curated})")
-                
-            except Exception as e:
-                logger.error(f"Failed to curate {note.title}: {e}")
-                # Create a failed result
-                failed_result = CurationResult(
-                    note=note,
-                    cleaned_content=note.content,
-                    quality_scores=self._default_quality_scores(),
-                    themes=[self._default_theme()],
-                    is_curated=False,
-                    curation_reason=f"Processing failed: {str(e)}",
-                    processing_notes=[f"Error: {str(e)}"]
-                )
-                curation_results.append(failed_result)
+                pbar.update(1)
+                pbar.set_postfix({"Curated": len([r for r in curation_results if r.is_curated])})
         
         return curation_results
     

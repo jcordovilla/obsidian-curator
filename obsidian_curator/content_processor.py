@@ -147,27 +147,81 @@ class ContentProcessor:
         Returns:
             ContentType enum value
         """
-        # Check metadata for content type indicators
-        if 'source' in metadata and metadata['source'].startswith('http'):
-            return ContentType.WEB_CLIPPING
-        
-        if 'source' in metadata and metadata['source'].endswith('.pdf'):
-            return ContentType.PDF_ANNOTATION
-        
-        # Check content for indicators
-        content_lower = content.lower()
-        
-        if any(pattern in content_lower for pattern in ['<html', '<div', '<span', '<p>']):
-            return ContentType.WEB_CLIPPING
-        
-        if any(pattern in content_lower for pattern in ['academic', 'research', 'study', 'paper']):
-            return ContentType.ACADEMIC_PAPER
-        
-        if any(pattern in content_lower for pattern in ['professional', 'industry', 'business']):
+        # Check metadata first
+        if metadata.get('source') and 'linkedin.com' in str(metadata.get('source', '')):
             return ContentType.PROFESSIONAL_PUBLICATION
         
-        # Default to personal note if no clear indicators
+        # Check for PDF annotations
+        if self._contains_pdf_references(content):
+            return ContentType.PDF_ANNOTATION
+        
+        # Check for image annotations
+        if self._contains_image_references(content):
+            return ContentType.IMAGE_ANNOTATION
+        
+        # Check for web clippings
+        if self._is_web_clipping(content):
+            return ContentType.WEB_CLIPPING
+        
+        # Check for academic content
+        if self._is_academic_content(content):
+            return ContentType.ACADEMIC_PAPER
+        
+        # Default to personal note
         return ContentType.PERSONAL_NOTE
+    
+    def _contains_pdf_references(self, content: str) -> bool:
+        """Check if content contains PDF references."""
+        pdf_patterns = [
+            r'\.pdf',
+            r'PDF',
+            r'pdf',
+            r'\[\[.*\.pdf\]\]',  # Obsidian PDF links
+            r'!\[\[.*\.pdf\]\]'  # Obsidian PDF embeds
+        ]
+        return any(re.search(pattern, content, re.IGNORECASE) for pattern in pdf_patterns)
+    
+    def _contains_image_references(self, content: str) -> bool:
+        """Check if content contains image references."""
+        image_patterns = [
+            r'\.(png|jpg|jpeg|gif|svg|webp)',
+            r'!\[\[.*\.(png|jpg|jpeg|gif|svg|webp)\]\]',  # Obsidian image embeds
+            r'<img[^>]*>',  # HTML image tags
+            r'image',
+            r'Image'
+        ]
+        return any(re.search(pattern, content, re.IGNORECASE) for pattern in image_patterns)
+    
+    def _is_web_clipping(self, content: str) -> bool:
+        """Check if content is a web clipping."""
+        web_patterns = [
+            r'<html',
+            r'<div[^>]*>',
+            r'<span[^>]*>',
+            r'<p[^>]*>',
+            r'http[s]?://',
+            r'www\.',
+            r'linkedin\.com',
+            r'twitter\.com',
+            r'facebook\.com'
+        ]
+        return any(re.search(pattern, content, re.IGNORECASE) for pattern in web_patterns)
+    
+    def _is_academic_content(self, content: str) -> bool:
+        """Check if content is academic in nature."""
+        academic_patterns = [
+            r'academic',
+            r'research',
+            r'study',
+            r'paper',
+            r'journal',
+            r'conference',
+            r'proceedings',
+            r'abstract',
+            r'methodology',
+            r'literature review'
+        ]
+        return any(re.search(pattern, content, re.IGNORECASE) for pattern in academic_patterns)
     
     def _clean_html_content(self, content: str) -> str:
         """Clean HTML content and convert to clean markdown.

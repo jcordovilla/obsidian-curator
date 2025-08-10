@@ -96,6 +96,7 @@ class CurationConfig(BaseModel):
     relevance_threshold: float = Field(default=0.6, ge=0.0, le=1.0, description="Minimum relevance score for curation")
     max_tokens: int = Field(default=2000, gt=0, description="Maximum tokens for AI analysis")
     target_themes: List[str] = Field(default_factory=list, description="Target themes to focus on")
+    sample_size: Optional[int] = Field(default=None, gt=0, description="Number of notes to process (random sample for testing)")
     preserve_metadata: bool = Field(default=True, description="Whether to preserve original metadata")
     clean_html: bool = Field(default=True, description="Whether to clean HTML content")
     remove_duplicates: bool = Field(default=True, description="Whether to remove duplicate content")
@@ -129,3 +130,19 @@ class VaultStructure(BaseModel):
     metadata_folder: Path = Field(..., description="Metadata folder path")
     curation_log_path: Path = Field(..., description="Path to curation log")
     theme_analysis_path: Path = Field(..., description="Path to theme analysis")
+
+
+class ProcessingCheckpoint(BaseModel):
+    """Checkpoint for resuming interrupted processing."""
+    timestamp: datetime = Field(default_factory=datetime.now, description="Checkpoint timestamp")
+    processed_notes: List[str] = Field(default_factory=list, description="Paths of processed notes")
+    total_notes: int = Field(..., description="Total notes to process")
+    current_step: str = Field(..., description="Current processing step")
+    config_hash: str = Field(..., description="Hash of configuration for validation")
+    
+    @property
+    def progress(self) -> float:
+        """Calculate progress percentage."""
+        if self.total_notes == 0:
+            return 0.0
+        return (len(self.processed_notes) / self.total_notes) * 100
