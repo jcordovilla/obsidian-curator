@@ -57,7 +57,6 @@ The project is now organized into logical directories:
 
 - **`scripts/`** - Main execution scripts
 - **`tools/`** - Utility tools and examples
-- **`legacy/`** - Old system files (reference only)
 - **`config/`** - Configuration files
 - **`docs/`** - This documentation
 - **`results/`** - Analysis results and reports
