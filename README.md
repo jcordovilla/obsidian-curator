@@ -98,11 +98,14 @@ The easiest way to use Obsidian Curator is through the command line:
 # Basic curation with default settings
 poetry run obsidian-curator curate /path/to/input/vault /path/to/output/vault
 
-# Custom quality threshold
-poetry run obsidian-curator curate --quality-threshold 0.8 /path/to/input/vault /path/to/output/vault
+# Custom quality threshold and reasoning level
+poetry run obsidian-curator curate --quality-threshold 0.8 --reasoning-level medium /path/to/input/vault /path/to/output/vault
 
 # Target specific themes
 poetry run obsidian-curator curate --target-themes infrastructure,construction /path/to/input/vault /path/to/output/vault
+
+# High reasoning level for better analysis
+poetry run obsidian-curator curate --reasoning-level high /path/to/input/vault /path/to/output/vault
 
 # Verbose logging
 poetry run obsidian-curator curate --verbose /path/to/input/vault /path/to/output/vault
@@ -142,6 +145,7 @@ print(f"Curated {stats.curated_notes}/{stats.total_notes} notes")
 ### CurationConfig Options
 
 - **`ai_model`**: Ollama model to use (default: `"gpt-oss:20b"`)
+- **`reasoning_level`**: AI reasoning level - `"low"`, `"medium"`, or `"high"` (default: `"low"`)
 - **`quality_threshold`**: Minimum quality score for curation (0.0-1.0, default: 0.7)
 - **`relevance_threshold`**: Minimum relevance score for curation (0.0-1.0, default: 0.6)
 - **`max_tokens`**: Maximum tokens for AI analysis (default: 2000)

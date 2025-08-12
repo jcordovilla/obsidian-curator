@@ -1,13 +1,17 @@
-"""Core orchestration for the Obsidian curation system."""
+"""Core orchestration logic for the Obsidian curation system."""
 
-import json
-from datetime import datetime
+import random
+import time
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import List, Optional, Iterator
 
 from loguru import logger
+from tqdm import tqdm
 
-from .models import CurationConfig, CurationResult, VaultStructure, CurationStats
+from .models import (
+    Note, CurationResult, CurationConfig, CurationStats, 
+    VaultStructure, ProcessingCheckpoint
+)
 from .content_processor import ContentProcessor
 from .ai_analyzer import AIAnalyzer
 from .theme_classifier import ThemeClassifier
@@ -15,15 +19,17 @@ from .vault_organizer import VaultOrganizer
 
 
 class ObsidianCurator:
-    """Main orchestrator for the Obsidian curation system."""
+    """Main orchestrator for the Obsidian curation process."""
     
     def __init__(self, config: CurationConfig):
-        """Initialize the Obsidian curator.
+        """Initialize the curator with configuration.
         
         Args:
             config: Curation configuration
         """
         self.config = config
+        
+        # Initialize components
         self.content_processor = ContentProcessor(
             clean_html=config.clean_html,
             preserve_metadata=config.preserve_metadata
@@ -32,197 +38,227 @@ class ObsidianCurator:
         self.theme_classifier = ThemeClassifier()
         self.vault_organizer = VaultOrganizer(config)
         
-        logger.info("Obsidian Curator initialized successfully")
+        logger.info("Obsidian Curator initialized")
+        logger.debug(f"Configuration: {config}")
     
     def curate_vault(self, input_path: Path, output_path: Path) -> CurationStats:
         """Curate an entire Obsidian vault.
         
         Args:
-            input_path: Path to the input Obsidian vault
-            output_path: Path for the curated vault output
+            input_path: Path to input vault
+            output_path: Path to output curated vault
             
         Returns:
-            CurationStats object with processing statistics
+            CurationStats with processing results
         """
-        import time
         start_time = time.time()
         
-        logger.info(f"Starting vault curation from {input_path} to {output_path}")
+        logger.info(f"Starting vault curation: {input_path} -> {output_path}")
         
-        # Step 1: Discover and process notes
-        notes = self._discover_notes(input_path)
-        logger.info(f"Discovered {len(notes)} notes for processing")
-        
-        # Step 2: Process and clean content
-        processed_notes = self._process_notes(notes)
-        logger.info(f"Processed {len(processed_notes)} notes")
-        
-        # Step 3: AI analysis and curation
-        curation_results = self._curate_notes(processed_notes)
-        logger.info(f"Completed AI analysis for {len(curation_results)} notes")
-        
-        # Step 4: Create vault structure
-        vault_structure = self._create_vault_structure(output_path, curation_results)
-        
-        # Step 5: Organize and save curated content
-        stats = self.vault_organizer.create_curated_vault(
-            curation_results, output_path, vault_structure
-        )
-        
-        # Update processing time
-        stats.processing_time = time.time() - start_time
-        
-        logger.info("Vault curation completed successfully")
-        return stats
+        try:
+            # Step 1: Discover notes
+            logger.info("Step 1: Discovering notes...")
+            notes = self._discover_notes(input_path)
+            
+            if not notes:
+                logger.warning("No notes found in input vault")
+                return CurationStats(
+                    total_notes=0,
+                    curated_notes=0,
+                    rejected_notes=0,
+                    processing_time=time.time() - start_time,
+                    themes_distribution={},
+                    quality_distribution={}
+                )
+            
+            logger.info(f"Found {len(notes)} notes to process")
+            
+            # Apply sample size if specified
+            if self.config.sample_size and len(notes) > self.config.sample_size:
+                notes = random.sample(notes, self.config.sample_size)
+                logger.info(f"Using random sample of {len(notes)} notes")
+            
+            # Step 2: Process content
+            logger.info("Step 2: Processing content...")
+            processed_notes = self._process_notes(notes)
+            
+            # Step 3: AI analysis
+            logger.info("Step 3: Performing AI analysis...")
+            curation_results = self._analyze_notes(processed_notes)
+            
+            # Step 4: Create curated vault
+            logger.info("Step 4: Creating curated vault...")
+            stats = self._create_curated_vault(curation_results, output_path)
+            
+            # Update final statistics
+            stats.processing_time = time.time() - start_time
+            
+            logger.info(f"Vault curation completed in {stats.processing_time:.1f}s")
+            logger.info(f"Results: {stats.curated_notes}/{stats.total_notes} notes curated ({stats.curation_rate:.1f}%)")
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Vault curation failed: {e}")
+            raise
     
-    def _discover_notes(self, vault_path: Path) -> List[Path]:
-        """Discover all markdown notes in the vault.
+    def _discover_notes(self, input_path: Path) -> List[Note]:
+        """Discover and load notes from the input vault.
         
         Args:
-            vault_path: Path to the Obsidian vault
+            input_path: Path to input vault
             
         Returns:
-            List of markdown file paths
+            List of discovered Note objects
         """
         notes = []
         
-        # Look for markdown files
-        for file_path in vault_path.rglob("*.md"):
-            # Skip certain directories and files
-            if self._should_skip_file(file_path, vault_path):
-                continue
-            notes.append(file_path)
+        # Find all markdown files
+        markdown_files = []
+        for pattern in ['*.md', '*.markdown']:
+            markdown_files.extend(input_path.rglob(pattern))
         
-        # Sort by modification date (newest first)
-        notes.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        
-        # Apply sample size if configured
-        if self.config.sample_size and self.config.sample_size < len(notes):
-            import random
-            random.seed(42)  # Fixed seed for reproducible results
-            notes = random.sample(notes, self.config.sample_size)
-            logger.info(f"Randomly sampled {len(notes)} notes from {len(notes)} total notes")
-        
-        return notes
-    
-    def _should_skip_file(self, file_path: Path, vault_path: Path) -> bool:
-        """Determine if a file should be skipped during processing.
-        
-        Args:
-            file_path: Path to the file
-            vault_path: Root vault path
-            
-        Returns:
-            True if file should be skipped
-        """
-        # Skip hidden files and directories
-        if any(part.startswith('.') for part in file_path.parts):
-            return True
-        
-        # Skip certain directories
-        skip_dirs = {
-            '.obsidian', 'attachments', 'assets', 'images', 'media',
-            'templates', 'daily', 'archive', 'trash'
-        }
-        
-        relative_path = file_path.relative_to(vault_path)
-        if any(skip_dir in relative_path.parts for skip_dir in skip_dirs):
-            return True
-        
-        # Skip certain file patterns
-        skip_patterns = [
-            'README.md', 'index.md', 'home.md', 'welcome.md',
-            'template.md', 'daily-', 'weekly-', 'monthly-'
+        # Filter out system files and templates
+        excluded_patterns = [
+            '.obsidian',
+            '.trash',
+            'templates',
+            'template',
+            '.git'
         ]
         
-        filename = file_path.name.lower()
-        if any(pattern in filename for pattern in skip_patterns):
-            return True
+        valid_files = []
+        for file_path in markdown_files:
+            # Skip hidden files and system directories
+            if any(part.startswith('.') for part in file_path.parts):
+                if not any(excluded in str(file_path).lower() for excluded in excluded_patterns):
+                    continue
+            
+            # Skip excluded patterns
+            if any(excluded in str(file_path).lower() for excluded in excluded_patterns):
+                continue
+            
+            # Skip empty files
+            try:
+                if file_path.stat().st_size == 0:
+                    continue
+            except OSError:
+                continue
+            
+            valid_files.append(file_path)
         
-        return False
+        # Sort by modification time (newest first)
+        valid_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        
+        logger.info(f"Found {len(valid_files)} valid markdown files")
+        
+        # Process files with progress bar
+        with tqdm(valid_files, desc="Loading notes", unit="files") as pbar:
+            for file_path in pbar:
+                try:
+                    note = self.content_processor.process_note(file_path)
+                    notes.append(note)
+                    pbar.set_postfix({"loaded": len(notes)})
+                except Exception as e:
+                    logger.warning(f"Failed to process {file_path}: {e}")
+                    continue
+        
+        logger.info(f"Successfully loaded {len(notes)} notes")
+        return notes
     
-    def _process_notes(self, note_paths: List[Path]) -> List[Any]:
-        """Process a list of note files.
+    def _process_notes(self, notes: List[Note]) -> List[Note]:
+        """Process notes through content cleaning and enhancement.
         
         Args:
-            note_paths: List of note file paths
+            notes: List of notes to process
             
         Returns:
-            List of processed Note objects
+            List of processed notes
         """
-        from tqdm import tqdm
-        
         processed_notes = []
         
-        with tqdm(total=len(note_paths), desc="Processing notes", unit="note") as pbar:
-            for note_path in note_paths:
+        with tqdm(notes, desc="Processing content", unit="notes") as pbar:
+            for note in pbar:
                 try:
-                    note = self.content_processor.process_note(note_path)
+                    # Content is already processed in content_processor.process_note()
+                    # This step could add additional processing if needed
                     processed_notes.append(note)
+                    pbar.set_postfix({"processed": len(processed_notes)})
                 except Exception as e:
-                    logger.error(f"Failed to process {note_path}: {e}")
-                    # Continue with other notes
-                
-                pbar.update(1)
-                pbar.set_postfix({"Processed": len(processed_notes)})
+                    logger.warning(f"Failed to process note {note.title}: {e}")
+                    continue
         
+        logger.info(f"Processed {len(processed_notes)} notes")
         return processed_notes
     
-    def _curate_notes(self, notes: List[Any]) -> List[CurationResult]:
-        """Curate notes using AI analysis.
+    def _analyze_notes(self, notes: List[Note]) -> List[CurationResult]:
+        """Analyze notes using AI for quality and theme assessment.
         
         Args:
-            notes: List of processed notes
+            notes: List of notes to analyze
             
         Returns:
             List of curation results
         """
-        from tqdm import tqdm
-        
         curation_results = []
         
-        with tqdm(total=len(notes), desc="AI Analysis", unit="note") as pbar:
-            for note in notes:
+        with tqdm(notes, desc="AI analysis", unit="notes") as pbar:
+            for note in pbar:
                 try:
-                    # Analyze note quality and themes
+                    # Perform AI analysis
                     quality_scores, themes, curation_reason = self.ai_analyzer.analyze_note(note)
                     
                     # Determine if note should be curated
-                    is_curated = self._should_curate_note(quality_scores, themes)
+                    is_curated = self._should_curate(quality_scores, themes)
                     
                     # Create curation result
                     result = CurationResult(
                         note=note,
-                        cleaned_content=note.content,  # Already cleaned during processing
+                        cleaned_content=note.content,  # Content already cleaned
                         quality_scores=quality_scores,
                         themes=themes,
                         is_curated=is_curated,
-                        curation_reason=curation_reason
+                        curation_reason=curation_reason,
+                        processing_notes=[]
                     )
                     
                     curation_results.append(result)
                     
+                    # Update progress
+                    curated_count = sum(1 for r in curation_results if r.is_curated)
+                    pbar.set_postfix({
+                        "analyzed": len(curation_results),
+                        "curated": curated_count,
+                        "rate": f"{(curated_count/len(curation_results)*100):.1f}%"
+                    })
+                    
                 except Exception as e:
-                    logger.error(f"Failed to curate note {note.title}: {e}")
+                    logger.warning(f"Failed to analyze note {note.title}: {e}")
                     # Create a failed result
-                    failed_result = CurationResult(
+                    from .models import QualityScore, Theme
+                    default_scores = QualityScore(
+                        overall=0.0, relevance=0.0, completeness=0.0, 
+                        credibility=0.0, clarity=0.0
+                    )
+                    result = CurationResult(
                         note=note,
                         cleaned_content=note.content,
-                        quality_scores=self._default_quality_scores(),
-                        themes=[self._default_theme()],
+                        quality_scores=default_scores,
+                        themes=[],
                         is_curated=False,
-                        curation_reason=f"Processing failed: {str(e)}",
-                        processing_notes=[f"Error: {str(e)}"]
+                        curation_reason=f"Analysis failed: {str(e)}",
+                        processing_notes=[f"AI analysis failed: {str(e)}"]
                     )
-                    curation_results.append(failed_result)
-                
-                pbar.update(1)
-                pbar.set_postfix({"Curated": len([r for r in curation_results if r.is_curated])})
+                    curation_results.append(result)
+                    continue
+        
+        curated_count = sum(1 for r in curation_results if r.is_curated)
+        logger.info(f"Analyzed {len(curation_results)} notes: {curated_count} curated, {len(curation_results) - curated_count} rejected")
         
         return curation_results
     
-    def _should_curate_note(self, quality_scores: Any, themes: List[Any]) -> bool:
-        """Determine if a note should be curated based on quality and relevance.
+    def _should_curate(self, quality_scores, themes) -> bool:
+        """Determine if a note should be curated based on scores and themes.
         
         Args:
             quality_scores: Quality assessment scores
@@ -231,176 +267,156 @@ class ObsidianCurator:
         Returns:
             True if note should be curated
         """
-        # Check quality threshold
-        if quality_scores.overall < self.config.quality_threshold:
-            return False
+        # Check quality and relevance thresholds
+        if (quality_scores.overall >= self.config.quality_threshold and 
+            quality_scores.relevance >= self.config.relevance_threshold):
+            
+            # If target themes specified, check theme alignment
+            if self.config.target_themes:
+                theme_names = [theme.name.lower() for theme in themes]
+                theme_alignment = any(
+                    target.lower() in theme_name or theme_name in target.lower()
+                    for target in self.config.target_themes
+                    for theme_name in theme_names
+                )
+                return theme_alignment
+            
+            return True
         
-        # Check relevance threshold
-        if quality_scores.relevance < self.config.relevance_threshold:
-            return False
+        return False
+    
+    def _create_curated_vault(self, curation_results: List[CurationResult], 
+                             output_path: Path) -> CurationStats:
+        """Create the curated vault with organized content.
         
-        # Check if themes align with target themes
-        if self.config.target_themes:
-            has_target_theme = any(
-                theme.name.lower() in [t.lower() for t in self.config.target_themes]
-                for theme in themes
+        Args:
+            curation_results: List of curation results
+            output_path: Path to output vault
+            
+        Returns:
+            CurationStats with results
+        """
+        # Filter curated results
+        curated_results = [r for r in curation_results if r.is_curated]
+        
+        if not curated_results:
+            logger.warning("No notes passed curation criteria")
+            return CurationStats(
+                total_notes=len(curation_results),
+                curated_notes=0,
+                rejected_notes=len(curation_results),
+                processing_time=0.0,
+                themes_distribution={},
+                quality_distribution={}
             )
-            if not has_target_theme:
-                return False
+        
+        # Create theme groups and vault structure
+        theme_groups = self.theme_classifier.classify_themes(curated_results)
+        vault_structure = self.theme_classifier.create_vault_structure(output_path, theme_groups)
+        
+        # Create curated vault
+        stats = self.vault_organizer.create_curated_vault(
+            curation_results, output_path, vault_structure
+        )
+        
+        return stats
+    
+    def create_checkpoint(self, processed_notes: List[str], total_notes: int, 
+                         current_step: str) -> ProcessingCheckpoint:
+        """Create a processing checkpoint for resuming interrupted operations.
+        
+        Args:
+            processed_notes: List of processed note paths
+            total_notes: Total number of notes to process
+            current_step: Current processing step
+            
+        Returns:
+            ProcessingCheckpoint object
+        """
+        import hashlib
+        
+        # Create config hash for validation
+        config_str = str(self.config.dict())
+        config_hash = hashlib.md5(config_str.encode()).hexdigest()
+        
+        return ProcessingCheckpoint(
+            processed_notes=processed_notes,
+            total_notes=total_notes,
+            current_step=current_step,
+            config_hash=config_hash
+        )
+    
+    def resume_from_checkpoint(self, checkpoint: ProcessingCheckpoint) -> bool:
+        """Resume processing from a checkpoint.
+        
+        Args:
+            checkpoint: Processing checkpoint to resume from
+            
+        Returns:
+            True if resume is valid, False otherwise
+        """
+        import hashlib
+        
+        # Validate config hasn't changed
+        config_str = str(self.config.dict())
+        config_hash = hashlib.md5(config_str.encode()).hexdigest()
+        
+        if config_hash != checkpoint.config_hash:
+            logger.warning("Configuration has changed since checkpoint was created")
+            return False
+        
+        logger.info(f"Resuming from checkpoint: {checkpoint.current_step}")
+        logger.info(f"Progress: {checkpoint.progress:.1f}% ({len(checkpoint.processed_notes)}/{checkpoint.total_notes})")
         
         return True
     
-    def _create_vault_structure(self, output_path: Path, 
-                               curation_results: List[CurationResult]) -> VaultStructure:
-        """Create the folder structure for the curated vault.
+    def batch_process_vault(self, input_path: Path, output_path: Path, 
+                           batch_size: int = 100) -> CurationStats:
+        """Process a large vault in batches to manage memory usage.
         
         Args:
-            output_path: Root path for the curated vault
-            curation_results: List of curation results
+            input_path: Path to input vault
+            output_path: Path to output vault
+            batch_size: Number of notes to process per batch
             
         Returns:
-            VaultStructure object
+            CurationStats with combined results
         """
-        # Classify themes
-        theme_groups = self.theme_classifier.classify_themes(curation_results)
+        logger.info(f"Starting batch processing with batch size: {batch_size}")
         
-        # Create vault structure
-        vault_structure = self.theme_classifier.create_vault_structure(
-            output_path, theme_groups
-        )
+        # Discover all notes first
+        all_notes = self._discover_notes(input_path)
         
-        return vault_structure
-    
-    def _default_quality_scores(self) -> Any:
-        """Create default quality scores for failed processing.
+        if not all_notes:
+            logger.warning("No notes found for batch processing")
+            return CurationStats(
+                total_notes=0, curated_notes=0, rejected_notes=0,
+                processing_time=0.0, themes_distribution={}, quality_distribution={}
+            )
         
-        Returns:
-            Default QualityScore object
-        """
-        from .models import QualityScore
-        return QualityScore(
-            overall=0.0,
-            relevance=0.0,
-            completeness=0.0,
-            credibility=0.0,
-            clarity=0.0
-        )
-    
-    def _default_theme(self) -> Any:
-        """Create default theme for failed processing.
+        # Process in batches
+        all_results = []
+        total_batches = (len(all_notes) + batch_size - 1) // batch_size
         
-        Returns:
-            Default Theme object
-        """
-        from .models import Theme
-        return Theme(
-            name="unknown",
-            confidence=0.0,
-            subthemes=[],
-            keywords=[]
-        )
-    
-    def get_curation_summary(self, curation_results: List[CurationResult]) -> Dict[str, Any]:
-        """Get a summary of curation results.
-        
-        Args:
-            curation_results: List of curation results
+        for batch_num in range(total_batches):
+            start_idx = batch_num * batch_size
+            end_idx = min((batch_num + 1) * batch_size, len(all_notes))
+            batch_notes = all_notes[start_idx:end_idx]
             
-        Returns:
-            Summary dictionary
-        """
-        total_notes = len(curation_results)
-        curated_notes = sum(1 for r in curation_results if r.is_curated)
-        rejected_notes = total_notes - curated_notes
+            logger.info(f"Processing batch {batch_num + 1}/{total_batches} ({len(batch_notes)} notes)")
+            
+            # Process batch
+            processed_notes = self._process_notes(batch_notes)
+            batch_results = self._analyze_notes(processed_notes)
+            all_results.extend(batch_results)
+            
+            # Log batch progress
+            batch_curated = sum(1 for r in batch_results if r.is_curated)
+            logger.info(f"Batch {batch_num + 1} complete: {batch_curated}/{len(batch_results)} curated")
         
-        # Theme distribution
-        theme_counts = {}
-        for result in curation_results:
-            if result.themes:
-                primary_theme = result.primary_theme
-                if primary_theme:
-                    theme_name = primary_theme.name
-                    theme_counts[theme_name] = theme_counts.get(theme_name, 0) + 1
+        # Create final curated vault
+        logger.info("Creating final curated vault...")
+        stats = self._create_curated_vault(all_results, output_path)
         
-        # Quality distribution
-        quality_ranges = {"0.0-0.2": 0, "0.2-0.4": 0, "0.4-0.6": 0, "0.6-0.8": 0, "0.8-1.0": 0}
-        for result in curation_results:
-            score = result.quality_scores.overall
-            if score < 0.2:
-                quality_ranges["0.0-0.2"] += 1
-            elif score < 0.4:
-                quality_ranges["0.2-0.4"] += 1
-            elif score < 0.6:
-                quality_ranges["0.4-0.6"] += 1
-            elif score < 0.8:
-                quality_ranges["0.6-0.8"] += 1
-            else:
-                quality_ranges["0.8-1.0"] += 1
-        
-        return {
-            "total_notes": total_notes,
-            "curated_notes": curated_notes,
-            "rejected_notes": rejected_notes,
-            "curation_rate": (curated_notes / total_notes * 100) if total_notes > 0 else 0,
-            "theme_distribution": theme_counts,
-            "quality_distribution": quality_ranges
-        }
-    
-    def export_curation_report(self, curation_results: List[CurationResult], 
-                              output_path: Path) -> None:
-        """Export a detailed curation report.
-        
-        Args:
-            curation_results: List of curation results
-            output_path: Path to save the report
-        """
-        summary = self.get_curation_summary(curation_results)
-        
-        report = []
-        report.append("# Obsidian Curation Report")
-        report.append("")
-        report.append(f"Generated on: {datetime.now().isoformat()}")
-        report.append("")
-        
-        # Summary
-        report.append("## Summary")
-        report.append("")
-        report.append(f"- **Total Notes**: {summary['total_notes']}")
-        report.append(f"- **Curated Notes**: {summary['curated_notes']}")
-        report.append(f"- **Rejected Notes**: {summary['rejected_notes']}")
-        report.append(f"- **Curation Rate**: {summary['curation_rate']:.1f}%")
-        report.append("")
-        
-        # Theme distribution
-        report.append("## Theme Distribution")
-        report.append("")
-        for theme, count in sorted(summary['theme_distribution'].items(), 
-                                  key=lambda x: x[1], reverse=True):
-            percentage = (count / summary['total_notes'] * 100) if summary['total_notes'] > 0 else 0
-            report.append(f"- **{theme}**: {count} notes ({percentage:.1f}%)")
-        report.append("")
-        
-        # Quality distribution
-        report.append("## Quality Distribution")
-        report.append("")
-        for range_name, count in summary['quality_distribution'].items():
-            percentage = (count / summary['total_notes'] * 100) if summary['total_notes'] > 0 else 0
-            report.append(f"- **{range_name}**: {count} notes ({percentage:.1f}%)")
-        report.append("")
-        
-        # Detailed results
-        report.append("## Detailed Results")
-        report.append("")
-        
-        for result in curation_results:
-            status = "✅ CURATED" if result.is_curated else "❌ REJECTED"
-            report.append(f"### {status}: {result.note.title}")
-            report.append(f"- **Quality Score**: {result.quality_scores.overall:.2f}")
-            report.append(f"- **Relevance Score**: {result.quality_scores.relevance:.2f}")
-            report.append(f"- **Primary Theme**: {result.primary_theme.name if result.primary_theme else 'Unknown'}")
-            report.append(f"- **Reason**: {result.curation_reason}")
-            report.append("")
-        
-        # Save report
-        output_path.write_text("\n".join(report), encoding='utf-8')
-        logger.info(f"Curation report saved to: {output_path}")
+        logger.info(f"Batch processing complete: {stats.curated_notes}/{stats.total_notes} total curated")
+        return stats

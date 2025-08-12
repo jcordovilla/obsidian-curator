@@ -92,6 +92,15 @@ class CurationResult(BaseModel):
 class CurationConfig(BaseModel):
     """Configuration for the curation process."""
     ai_model: str = Field(default="gpt-oss:20b", description="AI model to use for analysis")
+    reasoning_level: str = Field(default="low", description="AI reasoning level: low, medium, high")
+    
+    @validator('reasoning_level')
+    def validate_reasoning_level(cls, v):
+        """Validate reasoning level is one of the allowed values."""
+        allowed_levels = {'low', 'medium', 'high'}
+        if v.lower() not in allowed_levels:
+            raise ValueError(f"Reasoning level must be one of: {', '.join(allowed_levels)}")
+        return v.lower()
     quality_threshold: float = Field(default=0.7, ge=0.0, le=1.0, description="Minimum quality score for curation")
     relevance_threshold: float = Field(default=0.6, ge=0.0, le=1.0, description="Minimum relevance score for curation")
     max_tokens: int = Field(default=2000, gt=0, description="Maximum tokens for AI analysis")

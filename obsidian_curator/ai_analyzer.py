@@ -46,11 +46,8 @@ class AIAnalyzer:
             # Prepare content for analysis
             analysis_content = self._prepare_analysis_content(note)
             
-            # Analyze content quality
-            quality_scores = self._analyze_quality(analysis_content, note)
-            
-            # Identify themes
-            themes = self._identify_themes(analysis_content, note)
+            # Combined analysis in single AI call for better performance
+            quality_scores, themes = self._combined_analysis(analysis_content, note)
             
             # Determine curation decision
             curation_reason = self._determine_curation_decision(quality_scores, themes, note)
@@ -79,16 +76,14 @@ class AIAnalyzer:
         Returns:
             Formatted content for analysis
         """
-        # Limit content length to avoid token limits
-        max_words = self.config.max_tokens // 2  # Rough estimate
+        # Limit content length to avoid token limits - be more aggressive for speed
+        max_words = min(500, self.config.max_tokens // 3)  # More aggressive truncation for speed
         content = note.content
         
         if len(content.split()) > max_words:
-            # Take first and last parts to preserve context
+            # Take first part only for faster processing
             words = content.split()
-            first_part = ' '.join(words[:max_words//2])
-            last_part = ' '.join(words[-max_words//2:])
-            content = f"{first_part}\n\n[... content truncated ...]\n\n{last_part}"
+            content = ' '.join(words[:max_words]) + "\n\n[... content truncated for analysis ...]"
         
         # Format for analysis
         analysis_content = f"""
@@ -110,6 +105,109 @@ Please analyze this content for:
 """
         return analysis_content
     
+    def _combined_analysis(self, analysis_content: str, note: Note) -> Tuple[QualityScore, List[Theme]]:
+        """Combined quality and theme analysis in a single AI call for better performance.
+        
+        Args:
+            analysis_content: Formatted content for analysis
+            note: Note being analyzed
+            
+        Returns:
+            Tuple of (QualityScore, List[Theme])
+        """
+        # Create system prompt with reasoning level
+        system_prompt = f"""You are an expert content analyst specializing in infrastructure and construction content. Use {self.config.reasoning_level} reasoning to provide accurate, consistent quality assessments and theme identification."""
+        
+        prompt = f"""
+{analysis_content}
+
+Please provide both a quality assessment AND theme identification for this content.
+
+1. QUALITY ASSESSMENT - Provide scores from 0.0 to 1.0 for each category:
+   - Overall Quality: How valuable and well-crafted is this content overall?
+   - Relevance: How relevant is this to infrastructure and construction professionals?
+   - Completeness: How complete and comprehensive are the ideas presented?
+   - Credibility: How trustworthy and authoritative is the source and content?
+   - Clarity: How clear, well-organized, and easy to understand is the content?
+
+2. THEME IDENTIFICATION - Identify main themes relevant to infrastructure, construction, governance:
+   - Focus on themes like: infrastructure development, PPPs, construction, governance, sustainability, technology, economics
+   - For each theme, provide confidence (0.0-1.0), subthemes, and keywords
+
+Respond with a JSON object like this:
+{{
+    "quality": {{
+        "overall": 0.8,
+        "relevance": 0.9,
+        "completeness": 0.7,
+        "credibility": 0.8,
+        "clarity": 0.9
+    }},
+    "themes": [
+        {{
+            "name": "Infrastructure Finance",
+            "confidence": 0.9,
+            "subthemes": ["PPPs", "Funding"],
+            "keywords": ["finance", "investment", "funding"]
+        }}
+    ]
+}}
+
+Only provide the JSON response, no other text.
+"""
+        
+        try:
+            response = ollama.chat(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                options={"temperature": 0.15}  # Low temperature for consistent structured output
+            )
+            
+            content = response['message']['content'].strip()
+            
+            # Extract JSON from response
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                response_data = json.loads(json_match.group())
+                
+                # Parse quality scores
+                quality_data = response_data.get('quality', {})
+                quality_scores = QualityScore(
+                    overall=float(quality_data.get('overall', 0.5)),
+                    relevance=float(quality_data.get('relevance', 0.5)),
+                    completeness=float(quality_data.get('completeness', 0.5)),
+                    credibility=float(quality_data.get('credibility', 0.5)),
+                    clarity=float(quality_data.get('clarity', 0.5))
+                )
+                
+                # Parse themes
+                themes_data = response_data.get('themes', [])
+                themes = []
+                for theme_data in themes_data:
+                    theme = Theme(
+                        name=theme_data.get('name', 'Unknown'),
+                        confidence=float(theme_data.get('confidence', 0.5)),
+                        subthemes=theme_data.get('subthemes', []),
+                        keywords=theme_data.get('keywords', [])
+                    )
+                    themes.append(theme)
+                
+                # Ensure at least one theme
+                if not themes:
+                    themes = [self._default_theme()]
+                
+                return quality_scores, themes
+            else:
+                logger.warning(f"Could not extract JSON from AI response: {content}")
+                return self._default_quality_scores(), [self._default_theme()]
+                
+        except Exception as e:
+            logger.error(f"Failed to perform combined analysis: {e}")
+            return self._default_quality_scores(), [self._default_theme()]
+    
     def _analyze_quality(self, analysis_content: str, note: Note) -> QualityScore:
         """Analyze content quality using AI.
         
@@ -120,6 +218,9 @@ Please analyze this content for:
         Returns:
             QualityScore object
         """
+        # Create system prompt with reasoning level
+        system_prompt = f"""You are an expert content analyst specializing in infrastructure and construction content. Use {self.config.reasoning_level} reasoning to provide accurate, consistent quality assessments."""
+        
         prompt = f"""
 {analysis_content}
 
@@ -146,8 +247,11 @@ Only provide the JSON response, no other text.
         try:
             response = ollama.chat(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                options={"temperature": 0.3}  # Lower temperature for more consistent scoring
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                options={"temperature": 0.1}  # Very low temperature for consistent scoring
             )
             
             content = response['message']['content'].strip()
@@ -182,6 +286,9 @@ Only provide the JSON response, no other text.
         Returns:
             List of Theme objects
         """
+        # Create system prompt with reasoning level
+        system_prompt = f"""You are an expert thematic analyst specializing in infrastructure, construction, and governance content. Use {self.config.reasoning_level} reasoning to identify relevant themes accurately and consistently."""
+        
         prompt = f"""
 {analysis_content}
 
@@ -215,8 +322,11 @@ Only provide the JSON response, no other text.
         try:
             response = ollama.chat(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                options={"temperature": 0.4}
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                options={"temperature": 0.2}  # Low temperature for consistent theme identification
             )
             
             content = response['message']['content'].strip()

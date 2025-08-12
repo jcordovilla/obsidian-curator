@@ -10,6 +10,8 @@ import markdown
 from bs4 import BeautifulSoup
 from loguru import logger
 
+# Removed trafilatura dependencies - using optimized custom solution
+
 from .models import Note, ContentType
 
 
@@ -32,13 +34,41 @@ class ContentProcessor:
             'form', 'input', 'button', 'select', 'textarea'
         ]
         
-        # Common web clutter patterns
+        # Aggressive web clutter patterns
         self.clutter_patterns = [
             r'<!--.*?-->',  # HTML comments
+            r'<script[^>]*>.*?</script>',  # JavaScript
+            r'<style[^>]*>.*?</style>',  # CSS
             r'<div[^>]*class="[^"]*ad[^"]*"[^>]*>.*?</div>',  # Ad containers
             r'<div[^>]*class="[^"]*social[^"]*"[^>]*>.*?</div>',  # Social media widgets
             r'<div[^>]*class="[^"]*cookie[^"]*"[^>]*>.*?</div>',  # Cookie notices
             r'<div[^>]*class="[^"]*popup[^"]*"[^>]*>.*?</div>',  # Popup overlays
+            r'<div[^>]*class="[^"]*nav[^"]*"[^>]*>.*?</div>',  # Navigation
+            r'<div[^>]*class="[^"]*menu[^"]*"[^>]*>.*?</div>',  # Menus
+            r'<div[^>]*class="[^"]*header[^"]*"[^>]*>.*?</div>',  # Headers
+            r'<div[^>]*class="[^"]*footer[^"]*"[^>]*>.*?</div>',  # Footers
+            r'<div[^>]*class="[^"]*sidebar[^"]*"[^>]*>.*?</div>',  # Sidebars
+            r'<nav[^>]*>.*?</nav>',  # Navigation elements
+            r'<header[^>]*>.*?</header>',  # Header elements
+            r'<footer[^>]*>.*?</footer>',  # Footer elements
+            r'<aside[^>]*>.*?</aside>',  # Aside elements
+            r'\[Saltar a.*?\]',  # Skip navigation links
+            r'\(Publicidad\)',  # Advertisement markers
+            r'PUBLICIDAD',  # Advertisement text
+            r'Copyright.*?\..*?$',  # Copyright notices
+            r'Cotizaciones.*?redistribuir.*?información.*?$',  # Legal disclaimers
+            r'Yahoo!.*?Finanzas.*?México',  # Site branding
+            r'Haz de Y! tu página.*?inicio',  # Yahoo branding
+            r'@\w+\s+en\s+Twitter',  # Social media links
+            r'hazte fan en.*?Facebook',  # Facebook links
+            r'Ver más.*?»',  # "See more" links
+            r'Mostrar más',  # "Show more" links
+            r'\d+\s*-\s*\d+\s+de\s+\d+',  # Pagination
+            r'mar,.*?\d{4}.*?CDT',  # Date/time stamps
+            r'Hace \d+.*?horas?',  # "X hours ago" timestamps
+            r'Reuters.*?Hace.*?horas?',  # News source timestamps
+            r'AFP.*?Hace.*?horas?',  # News source timestamps
+            r'EFE.*?Hace.*?horas?',  # News source timestamps
         ]
     
     def process_note(self, file_path: Path) -> Note:
@@ -68,8 +98,8 @@ class ContentProcessor:
         # Determine content type
         content_type = self._determine_content_type(metadata, clean_content)
         
-        # Clean content if needed
-        if self.clean_html and content_type == ContentType.WEB_CLIPPING:
+        # Clean content if needed - apply to all web-based content types
+        if self.clean_html and content_type in [ContentType.WEB_CLIPPING, ContentType.IMAGE_ANNOTATION, ContentType.PDF_ANNOTATION]:
             clean_content = self._clean_html_content(clean_content)
         
         # Extract title
@@ -239,28 +269,44 @@ class ContentProcessor:
         for pattern in self.clutter_patterns:
             content = re.sub(pattern, '', content, flags=re.IGNORECASE | re.DOTALL)
         
-        # Parse HTML with BeautifulSoup
-        try:
-            soup = BeautifulSoup(content, 'html.parser')
-        except Exception as e:
-            logger.warning(f"Failed to parse HTML with BeautifulSoup: {e}")
-            # Fallback: basic HTML tag removal
-            return self._basic_html_cleanup(content)
+        # Check if content is primarily HTML or Markdown
+        html_indicators = ['<div', '<span', '<table', '<tr', '<td', '<p>', '<ul', '<ol', '<li']
+        is_html = any(indicator in content for indicator in html_indicators)
         
-        # Remove unwanted elements
-        for element in soup.find_all(self.html_elements_to_remove):
-            element.decompose()
+        if is_html:
+            # Parse HTML with BeautifulSoup
+            try:
+                soup = BeautifulSoup(content, 'html.parser')
+            except Exception as e:
+                logger.warning(f"Failed to parse HTML with BeautifulSoup: {e}")
+                # Fallback: basic HTML tag removal
+                return self._basic_html_cleanup(content)
+            
+            # Remove unwanted elements
+            for element in soup.find_all(self.html_elements_to_remove):
+                element.decompose()
+            
+            # Clean up common web elements
+            self._clean_web_elements(soup)
+            
+            # Try to extract main article content
+            main_content = self._extract_main_content(soup)
+            
+            # Convert to markdown
+            try:
+                # Use the main content if found, otherwise full soup
+                content_to_convert = main_content if main_content else soup
+                cleaned_content = self._html_to_markdown(content_to_convert)
+            except Exception as e:
+                logger.warning(f"Failed to convert HTML to markdown: {e}")
+                content_to_convert = main_content if main_content else soup
+                cleaned_content = content_to_convert.get_text(separator='\n', strip=True)
+        else:
+            # Content is already Markdown - just apply text cleanup
+            cleaned_content = content
         
-        # Clean up common web elements
-        self._clean_web_elements(soup)
-        
-        # Convert to markdown
-        try:
-            # Use markdownify or similar for better conversion
-            cleaned_content = self._html_to_markdown(soup)
-        except Exception as e:
-            logger.warning(f"Failed to convert HTML to markdown: {e}")
-            cleaned_content = soup.get_text(separator='\n', strip=True)
+        # Final cleanup of remaining clutter
+        cleaned_content = self._final_text_cleanup(cleaned_content)
         
         return cleaned_content
     
@@ -270,24 +316,58 @@ class ContentProcessor:
         Args:
             soup: BeautifulSoup object to clean
         """
-        # Remove navigation elements
-        for nav in soup.find_all(['nav', 'header', 'footer']):
+        # Remove navigation and structural elements
+        for nav in soup.find_all(['nav', 'header', 'footer', 'aside', 'section']):
             nav.decompose()
         
-        # Remove common web clutter
+        # Remove common web clutter by class (partial matches)
         clutter_classes = [
-            'advertisement', 'ad', 'banner', 'sidebar', 'navigation',
+            'advertisement', 'ad', 'banner', 'sidebar', 'navigation', 'nav',
             'menu', 'footer', 'header', 'social', 'share', 'comment',
-            'related', 'recommended', 'popular', 'trending'
+            'related', 'recommended', 'popular', 'trending', 'widget',
+            'toolbar', 'breadcrumb', 'pagination', 'pager', 'metadata',
+            'tags', 'category', 'byline', 'author', 'date', 'timestamp',
+            'copyright', 'legal', 'disclaimer', 'terms', 'privacy',
+            'subscribe', 'newsletter', 'signup', 'login', 'search'
         ]
         
-        for element in soup.find_all(class_=clutter_classes):
-            element.decompose()
+        # Find elements with classes containing clutter keywords
+        for element in soup.find_all(True):
+            if element.get('class'):
+                class_str = ' '.join(element.get('class')).lower()
+                if any(clutter in class_str for clutter in clutter_classes):
+                    element.decompose()
+                    continue
+            
+            # Also check IDs
+            if element.get('id'):
+                id_str = element.get('id').lower()
+                if any(clutter in id_str for clutter in clutter_classes):
+                    element.decompose()
         
-        # Remove elements with common clutter IDs
-        clutter_ids = ['ad', 'banner', 'sidebar', 'nav', 'menu', 'footer', 'header']
-        for element in soup.find_all(id=clutter_ids):
-            element.decompose()
+        # Remove tables that look like navigation/layout (not content)
+        for table in soup.find_all('table'):
+            # If table has very little text content, it's likely layout
+            text_content = table.get_text().strip()
+            if len(text_content) < 100 or not any(char.isalpha() for char in text_content):
+                table.decompose()
+        
+        # Remove divs with only links (likely navigation)
+        for div in soup.find_all('div'):
+            links = div.find_all('a')
+            text_content = div.get_text().strip()
+            # If div is mostly links with little text, remove it
+            if len(links) > 2 and len(text_content) < 200:
+                div.decompose()
+        
+        # Remove lists that are likely navigation menus
+        for ul in soup.find_all(['ul', 'ol']):
+            items = ul.find_all('li')
+            # If most list items contain only links, it's likely navigation
+            if len(items) > 3:
+                link_items = sum(1 for li in items if li.find('a') and len(li.get_text().strip()) < 50)
+                if link_items / len(items) > 0.7:
+                    ul.decompose()
     
     def _html_to_markdown(self, soup: BeautifulSoup) -> str:
         """Convert cleaned HTML to markdown.
@@ -480,3 +560,172 @@ class ContentProcessor:
             return urls[0]  # Return first URL found
         
         return None
+    
+    def _extract_main_content(self, soup: BeautifulSoup) -> BeautifulSoup:
+        """Extract the main article content from the soup.
+        
+        Args:
+            soup: BeautifulSoup object
+            
+        Returns:
+            BeautifulSoup object with main content or None if not found
+        """
+        # Try to find article content by looking for Reuters/news patterns
+        article_indicators = [
+            lambda el: 'REUTERS' in el.get_text(),
+            lambda el: 'Reuters' in el.get_text(),
+            lambda el: any(phrase in el.get_text() for phrase in ['officials said', 'according to', 'reported', 'announced']),
+            lambda el: len(el.get_text().strip()) > 200 and any(word in el.get_text().lower() for word in ['project', 'company', 'government', 'development', 'investment'])
+        ]
+        
+        # Look for paragraphs or divs containing article content
+        potential_articles = []
+        for element in soup.find_all(['p', 'div']):
+            text = element.get_text().strip()
+            if len(text) > 100:  # Substantial content
+                score = 0
+                for indicator in article_indicators:
+                    if indicator(element):
+                        score += 1
+                if score > 0:
+                    potential_articles.append((score, len(text), element))
+        
+        if potential_articles:
+            # Sort by score first, then by length
+            potential_articles.sort(key=lambda x: (x[0], x[1]), reverse=True)
+            best_element = potential_articles[0][2]
+            
+            # Try to find the parent container that includes the full article
+            parent = best_element
+            while parent.parent and len(parent.parent.get_text().strip()) > len(best_element.get_text().strip()) * 1.5:
+                parent = parent.parent
+                # Stop if we're getting too much extra content
+                if len(parent.get_text().strip()) > len(best_element.get_text().strip()) * 3:
+                    break
+            
+            new_soup = BeautifulSoup('', 'html.parser')
+            new_soup.append(parent.extract())
+            return new_soup
+        
+        # Fallback: Common main content selectors
+        main_selectors = [
+            'article',
+            'main',
+            '[role="main"]',
+            '.content',
+            '.article',
+            '.post',
+            '.entry',
+            '.story'
+        ]
+        
+        for selector in main_selectors:
+            main_element = soup.select_one(selector)
+            if main_element:
+                new_soup = BeautifulSoup('', 'html.parser')
+                new_soup.append(main_element.extract())
+                return new_soup
+        
+        return None
+    
+    def _final_text_cleanup(self, content: str) -> str:
+        """Final cleanup of text content to remove remaining clutter.
+        
+        Args:
+            content: Text content to clean
+            
+        Returns:
+            Cleaned text content
+        """
+        if not content:
+            return content
+        
+        lines = content.split('\n')
+        cleaned_lines = []
+        in_article_content = False
+        
+        for line in lines:
+            original_line = line
+            line = line.strip()
+            
+            # Skip empty lines
+            if not line:
+                continue
+            
+            # Detect when we're in article content (starts with Reuters, etc.)
+            if ('REUTERS' in line or 'Reuters' in line or 
+                any(phrase in line for phrase in ['officials said', 'according to', 'announced']) and len(line) > 50):
+                in_article_content = True
+            
+            # If we're in article content, be much more conservative about removal
+            if in_article_content:
+                # Only remove very obvious clutter in article content
+                skip_indicators = [
+                    'PUBLICIDAD', 'Publicidad', 'Productos Yahoo!',
+                    'Más Buscados', 'Todo Sobre Los Mercados',
+                    'YAHOO! FINANZAS', 'Más Yahoo! Finanzas',
+                    'Correo electrónico'
+                ]
+                
+                # Only skip if it's clearly not article content
+                if any(indicator in line for indicator in skip_indicators):
+                    continue
+                
+                # Don't skip lines with substantive content (> 30 chars and has meaningful words)
+                if len(line) > 30 and any(word in line.lower() for word in ['the', 'and', 'said', 'project', 'company', 'government', 'will', 'would', 'can']):
+                    cleaned_lines.append(line)
+                    continue
+            
+            # Standard clutter removal for non-article content
+            clutter_indicators = [
+                'Buscar', 'buscar', 'Search', 'search',
+                'Yahoo!', 'Copyright', 'Todos los derechos',
+                'Política de privacidad', 'Términos del Servicio',
+                'Ayuda', 'Mail', 'Inicio', 'Ver más', 'Mostrar más',
+                'Saltar a', 'Haz de Y!', 'tu página de inicio',
+                'Correo electrónico', 'Facebook', 'Twitter',
+                'Publicar como', 'Escribe un comentario',
+                'Deja un comentario', 'Aún no Hay Comentarios',
+                'PUBLICIDAD', 'Publicidad', 'Productos Yahoo!',
+                'Más Buscados', 'Todo Sobre Los Mercados',
+                'Cotizaciones recientes', 'Hoy En Yahoo!',
+                'YAHOO! FINANZAS', 'Más Yahoo! Finanzas'
+            ]
+            
+            # Skip lines that contain clutter indicators (but preserve timestamps in article context)
+            skip_line = False
+            for indicator in clutter_indicators:
+                if indicator in line:
+                    # Exception: keep Reuters timestamps and source attributions
+                    if not (in_article_content and ('Reuters' in line or 'AFP' in line or 'EFE' in line) and ('Hace' in line or 'horas' in line or 'CDT' in line)):
+                        skip_line = True
+                        break
+            
+            if skip_line:
+                continue
+            
+            # Skip lines that are mostly symbols/punctuation
+            if len(line) < 20 and not any(char.isalnum() for char in line):
+                continue
+            
+            # Skip lines that look like navigation (mostly links) unless they're article content
+            if not in_article_content and (line.count('|') > 3 or line.count('»') > 0):
+                continue
+            
+            # Skip single-word lines that are likely navigation
+            if not in_article_content and len(line.split()) == 1 and len(line) < 15:
+                continue
+            
+            # Skip table formatting lines
+            if line.startswith('|') and line.endswith('|'):
+                continue
+            
+            # Skip lines with just symbols
+            if re.match(r'^[\s\-\|:\+\*=#]+$', line):
+                continue
+            
+            cleaned_lines.append(line)
+        
+        return '\n'.join(cleaned_lines)
+    
+

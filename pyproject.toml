@@ -11,10 +11,12 @@ python = "^3.12"
 pydantic = "^2.5.0"
 markdown = "^3.5.1"
 beautifulsoup4 = "^4.12.2"
-lxml = "^4.9.3"
+lxml = "^5.2.0"
 ollama = "^0.1.7"
 loguru = "^0.7.2"
 tqdm = "^4.66.1"
+click = "^8.1.7"
+rich = "^13.7.0"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^7.4.3"
