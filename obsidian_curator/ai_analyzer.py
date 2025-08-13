@@ -383,13 +383,16 @@ Only provide the JSON response, no other text.
         prompt = f"""
 {analysis_content}
 
-Please identify the main themes and topics in this content. Focus on themes relevant to infrastructure, construction, governance, and related professional fields.
+Please identify the main themes and topics in this content with professional insight classification. Focus on themes relevant to infrastructure, construction, governance, and related professional fields.
 
 For each theme, provide:
 1. Theme name (e.g., "Public-Private Partnerships", "Infrastructure Resilience")
 2. Confidence level (0.0 to 1.0)
 3. Sub-themes (if any)
 4. Keywords associated with the theme
+5. Expertise level: "entry", "intermediate", "expert", or "thought_leader"
+6. Content category: "strategic", "tactical", "policy", "technical", or "operational"
+7. Business value: "operational", "strategic", "governance", or "innovation"
 
 Respond with a JSON array like this:
 [
@@ -397,13 +400,19 @@ Respond with a JSON array like this:
         "name": "Public-Private Partnerships",
         "confidence": 0.9,
         "subthemes": ["Financing", "Governance", "Risk Management"],
-        "keywords": ["PPPs", "infrastructure", "private sector", "public sector"]
+        "keywords": ["PPPs", "infrastructure", "private sector", "public sector"],
+        "expertise_level": "expert",
+        "content_category": "strategic",
+        "business_value": "governance"
     }},
     {{
         "name": "Infrastructure Resilience",
         "confidence": 0.7,
         "subthemes": ["Climate Adaptation", "Disaster Recovery"],
-        "keywords": ["resilience", "climate change", "disaster", "adaptation"]
+        "keywords": ["resilience", "climate change", "disaster", "adaptation"],
+        "expertise_level": "intermediate",
+        "content_category": "technical",
+        "business_value": "operational"
     }}
 ]
 
@@ -430,10 +439,15 @@ Only provide the JSON response, no other text.
                 themes = []
                 for theme_data in themes_data:
                     theme = Theme(
+                        # Core theme fields
                         name=theme_data.get('name', 'Unknown'),
                         confidence=float(theme_data.get('confidence', 0.5)),
                         subthemes=theme_data.get('subthemes', []),
-                        keywords=theme_data.get('keywords', [])
+                        keywords=theme_data.get('keywords', []),
+                        # Professional insight classification (NEW)
+                        expertise_level=theme_data.get('expertise_level', 'intermediate'),
+                        content_category=theme_data.get('content_category', 'technical'),
+                        business_value=theme_data.get('business_value', 'operational')
                     )
                     themes.append(theme)
                 
@@ -545,9 +559,18 @@ Only provide the JSON response, no other text.
         Returns:
             Reason for curation decision
         """
-        # Check quality thresholds
+        # Check core quality thresholds
         quality_passed = quality_scores.overall >= self.config.quality_threshold
         relevance_passed = quality_scores.relevance >= self.config.relevance_threshold
+        
+        # Check professional writing quality (NEW - targeting 9/10 readiness)
+        professional_score = quality_scores.professional_writing_score
+        professional_threshold = 0.7  # 70% threshold for professional quality
+        professional_passed = professional_score >= professional_threshold
+        
+        # Enhanced decision logic
+        if not quality_passed and not relevance_passed and not professional_passed:
+            return f"Failed all thresholds: quality={quality_scores.overall:.2f}, relevance={quality_scores.relevance:.2f}, professional={professional_score:.2f}"
         
         if not quality_passed and not relevance_passed:
             return f"Failed both quality ({quality_scores.overall:.2f} < {self.config.quality_threshold}) and relevance ({quality_scores.relevance:.2f} < {self.config.relevance_threshold}) thresholds"
@@ -557,6 +580,12 @@ Only provide the JSON response, no other text.
         
         if not relevance_passed:
             return f"Failed relevance threshold: {quality_scores.relevance:.2f} < {self.config.relevance_threshold}"
+        
+        # Professional writing quality bonus (NEW)
+        if professional_passed:
+            professional_bonus = " (Professional writing quality bonus)"
+        else:
+            professional_bonus = f" (Professional writing: {professional_score:.2f} < {professional_threshold})"
         
         # Check if themes align with target themes
         if self.config.target_themes:
@@ -569,7 +598,7 @@ Only provide the JSON response, no other text.
                 return f"Content themes ({[t.name for t in themes]}) don't align with target themes ({self.config.target_themes})"
         
         # All checks passed
-        return f"Passed all curation criteria: quality={quality_scores.overall:.2f}, relevance={quality_scores.relevance:.2f}"
+        return f"Passed all curation criteria: quality={quality_scores.overall:.2f}, relevance={quality_scores.relevance:.2f}{professional_bonus}"
     
     def _default_quality_scores(self) -> QualityScore:
         """Return default quality scores when AI analysis fails."""
