@@ -17,7 +17,8 @@ The system consists of five main components that work together to process and cu
   - Title, tags, source URLs, creation/modification dates
   - Custom metadata fields preserved for context
 - **Content Type Detection**: Automatically identifies note types:
-  - `WEB_CLIPPING`: Articles from websites, social media posts
+  - `WEB_CLIPPING`: Full articles scraped from websites with substantial HTML content
+  - `URL_REFERENCE`: Simple bookmarks or URL references with minimal content  
   - `PERSONAL_NOTE`: User-created notes and drafts
   - `ACADEMIC_PAPER`: Research papers, journal articles, academic content
   - `PDF_ANNOTATION`: Notes containing PDF references or annotations

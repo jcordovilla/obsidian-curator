@@ -32,7 +32,9 @@ class ObsidianCurator:
         # Initialize components
         self.content_processor = ContentProcessor(
             clean_html=config.clean_html,
-            preserve_metadata=config.preserve_metadata
+            preserve_metadata=config.preserve_metadata,
+            intelligent_extraction=True,  # Enable intelligent extraction by default
+            ai_model=config.ai_model  # Pass AI model for content curation
         )
         self.ai_analyzer = AIAnalyzer(config)
         self.theme_classifier = ThemeClassifier()

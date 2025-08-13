@@ -76,14 +76,21 @@ class AIAnalyzer:
         Returns:
             Formatted content for analysis
         """
-        # Limit content length to avoid token limits - be more aggressive for speed
-        max_words = min(500, self.config.max_tokens // 3)  # More aggressive truncation for speed
+        # Intelligent content preparation for analysis
         content = note.content
+        max_tokens = self.config.max_tokens
         
-        if len(content.split()) > max_words:
-            # Take first part only for faster processing
-            words = content.split()
-            content = ' '.join(words[:max_words]) + "\n\n[... content truncated for analysis ...]"
+        # For very long content, create an intelligent summary instead of truncation
+        words = content.split()
+        if len(words) > max_tokens // 2:  # More generous limit for comprehensive analysis
+            # Keep beginning and end, plus extract key sections
+            beginning = ' '.join(words[:max_tokens // 4])
+            ending = ' '.join(words[-max_tokens // 4:])
+            
+            # Try to extract key sections (headings, important paragraphs)
+            key_sections = self._extract_key_sections(content, max_tokens // 4)
+            
+            content = f"{beginning}\n\n[... content summary ...]\n{key_sections}\n\n[... content continued ...]\n{ending}"
         
         # Format for analysis
         analysis_content = f"""
@@ -104,6 +111,42 @@ Please analyze this content for:
 6. Main themes and topics covered
 """
         return analysis_content
+    
+    def _extract_key_sections(self, content: str, max_words: int) -> str:
+        """Extract key sections from content for analysis.
+        
+        Args:
+            content: Full content to extract from
+            max_words: Maximum words to extract
+            
+        Returns:
+            Key sections content
+        """
+        lines = content.split('\n')
+        key_lines = []
+        word_count = 0
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Prioritize headings, bullet points, and substantive paragraphs
+            is_important = (
+                line.startswith('#') or  # Headings
+                line.startswith('- ') or line.startswith('* ') or  # Bullet points
+                len(line.split()) > 10  # Substantive paragraphs
+            )
+            
+            if is_important:
+                line_words = len(line.split())
+                if word_count + line_words <= max_words:
+                    key_lines.append(line)
+                    word_count += line_words
+                else:
+                    break
+        
+        return '\n'.join(key_lines) if key_lines else ""
     
     def _combined_analysis(self, analysis_content: str, note: Note) -> Tuple[QualityScore, List[Theme]]:
         """Combined quality and theme analysis in a single AI call for better performance.

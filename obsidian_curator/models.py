@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, validator
 class ContentType(str, Enum):
     """Types of content that can be processed."""
     WEB_CLIPPING = "web_clipping"
+    URL_REFERENCE = "url_reference"
     PERSONAL_NOTE = "personal_note"
     ACADEMIC_PAPER = "academic_paper"
     PDF_ANNOTATION = "pdf_annotation"

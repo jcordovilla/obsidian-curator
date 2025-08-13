@@ -13,20 +13,42 @@ from loguru import logger
 # Removed trafilatura dependencies - using optimized custom solution
 
 from .models import Note, ContentType
+from .content_extractor import ContentExtractor
 
 
 class ContentProcessor:
     """Processes and cleans Obsidian note content."""
     
-    def __init__(self, clean_html: bool = True, preserve_metadata: bool = True):
+    def __init__(self, 
+                 clean_html: bool = True, 
+                 preserve_metadata: bool = True,
+                 extract_linked_content: bool = True,
+                 max_pdf_pages: int = 100,
+                 intelligent_extraction: bool = True,
+                 ai_model: str = None):
         """Initialize the content processor.
         
         Args:
             clean_html: Whether to clean HTML content
             preserve_metadata: Whether to preserve original metadata
+            extract_linked_content: Whether to extract content from linked PDFs, images, URLs
+            max_pdf_pages: Maximum number of PDF pages to process
+            intelligent_extraction: Use AI to filter and summarize extracted content
+            ai_model: AI model to use for intelligent extraction
         """
         self.clean_html = clean_html
         self.preserve_metadata = preserve_metadata
+        self.extract_linked_content = extract_linked_content
+        
+        # Initialize content extractor if enabled
+        if self.extract_linked_content:
+            self.content_extractor = ContentExtractor(
+                max_pdf_pages=max_pdf_pages,
+                intelligent_extraction=intelligent_extraction,
+                ai_model=ai_model
+            )
+        else:
+            self.content_extractor = None
         
         # Common HTML elements to remove
         self.html_elements_to_remove = [
@@ -98,9 +120,31 @@ class ContentProcessor:
         # Determine content type
         content_type = self._determine_content_type(metadata, clean_content)
         
-        # Clean content if needed - apply to all web-based content types
+        # Clean content if needed - apply only to content types that actually contain HTML
         if self.clean_html and content_type in [ContentType.WEB_CLIPPING, ContentType.IMAGE_ANNOTATION, ContentType.PDF_ANNOTATION]:
             clean_content = self._clean_html_content(clean_content)
+        # URL references don't need HTML cleaning as they're typically simple bookmarks
+        
+        # Extract linked content if enabled
+        if self.extract_linked_content and self.content_extractor:
+            vault_root = file_path.parent
+            # Find vault root by looking for .obsidian folder or going up to reasonable limit
+            current_path = file_path.parent
+            max_depth = 10
+            depth = 0
+            
+            while depth < max_depth and current_path.parent != current_path:
+                if (current_path / '.obsidian').exists():
+                    vault_root = current_path
+                    break
+                current_path = current_path.parent
+                depth += 1
+            
+            try:
+                clean_content = self.content_extractor.enhance_note_content(clean_content, vault_root)
+            except Exception as e:
+                logger.warning(f"Failed to extract linked content: {e}")
+                # Continue with original content if extraction fails
         
         # Extract title
         title = self._extract_title(metadata, clean_content, file_path)
@@ -177,11 +221,7 @@ class ContentProcessor:
         Returns:
             ContentType enum value
         """
-        # Check metadata first
-        if metadata.get('source') and 'linkedin.com' in str(metadata.get('source', '')):
-            return ContentType.PROFESSIONAL_PUBLICATION
-        
-        # Check for PDF annotations
+        # Check for PDF annotations first (highest priority for specific content)
         if self._contains_pdf_references(content):
             return ContentType.PDF_ANNOTATION
         
@@ -189,9 +229,20 @@ class ContentProcessor:
         if self._contains_image_references(content):
             return ContentType.IMAGE_ANNOTATION
         
-        # Check for web clippings
-        if self._is_web_clipping(content):
-            return ContentType.WEB_CLIPPING
+        # Check for web clippings vs URL references vs personal notes with URLs
+        if self._contains_urls(content):
+            # First check if it's a substantial web clipping
+            if self._is_web_clipping(content):
+                # Then check if it's a professional publication based on source
+                if metadata.get('source') and 'linkedin.com' in str(metadata.get('source', '')):
+                    return ContentType.PROFESSIONAL_PUBLICATION
+                return ContentType.WEB_CLIPPING
+            
+            # If it contains URLs but isn't a web clipping, determine if it's a URL reference
+            # vs personal note that happens to contain URLs
+            if self._is_primarily_url_reference(content):
+                return ContentType.URL_REFERENCE
+            # If URLs are just incidental to substantial personal content, it's a personal note
         
         # Check for academic content
         if self._is_academic_content(content):
@@ -222,20 +273,125 @@ class ContentProcessor:
         ]
         return any(re.search(pattern, content, re.IGNORECASE) for pattern in image_patterns)
     
-    def _is_web_clipping(self, content: str) -> bool:
-        """Check if content is a web clipping."""
-        web_patterns = [
-            r'<html',
-            r'<div[^>]*>',
-            r'<span[^>]*>',
-            r'<p[^>]*>',
-            r'http[s]?://',
+    def _contains_urls(self, content: str) -> bool:
+        """Check if content contains URLs."""
+        url_patterns = [
+            r'https?://',  # Fixed: was http[s]
+            r'<https?://',  # Markdown/HTML wrapped URLs
             r'www\.',
             r'linkedin\.com',
             r'twitter\.com',
             r'facebook\.com'
         ]
-        return any(re.search(pattern, content, re.IGNORECASE) for pattern in web_patterns)
+        return any(re.search(pattern, content, re.IGNORECASE) for pattern in url_patterns)
+    
+    def _is_primarily_url_reference(self, content: str) -> bool:
+        """Check if content is primarily a URL reference/bookmark vs personal content with URLs.
+        
+        A URL reference is characterized by:
+        - Minimal descriptive text (usually just a title and URL)
+        - URLs are the primary content, not incidental
+        - Little personal commentary or analysis
+        """
+        # Remove frontmatter and clean content for analysis
+        clean_text = re.sub(r'---.*?---', '', content, flags=re.DOTALL)
+        clean_text = re.sub(r'#+ ', '', clean_text)  # Remove headers
+        clean_text = clean_text.strip()
+        
+        # Count URLs vs total content  
+        urls = re.findall(r'<?(https?://[^\s<>"{}|\\^`\[\]]+)>?', clean_text)
+        url_chars = sum(len(url) for url in urls)
+        
+        # Remove URLs to see remaining content
+        text_without_urls = re.sub(r'<?(https?://[^\s<>"{}|\\^`\[\]]+)>?', '', clean_text)
+        text_without_urls = re.sub(r'<[^>]+>', '', text_without_urls)  # Remove any HTML
+        text_without_urls = re.sub(r'\*\*.*?\*\*', '', text_without_urls)  # Remove bold text
+        text_without_urls = re.sub(r'\s+', ' ', text_without_urls).strip()
+        
+        non_url_words = len(text_without_urls.split()) if text_without_urls else 0
+        total_chars = len(clean_text)
+        total_words = len(clean_text.split())
+        
+        # It's primarily a URL reference if:
+        # 1. Very short content (quick reference style)
+        # 2. URLs are prominent compared to text
+        # 3. Limited descriptive content
+        
+        is_very_short = total_chars < 200  # Increased threshold
+        is_minimal_words = total_words < 25  # Simple word count check
+        is_minimal_non_url_content = non_url_words < 20  # Focus on substantial content
+        
+        # A URL reference typically has:
+        # - Short content OR
+        # - Minimal words OR 
+        # - Very little non-URL content (indicating it's mainly for the links)
+        
+        return is_very_short or is_minimal_words or is_minimal_non_url_content
+    
+    def _is_web_clipping(self, content: str) -> bool:
+        """Check if content is a web clipping (vs a simple URL reference).
+        
+        A web clipping should have substantial HTML content or clear signs of web scraping.
+        This is different from a simple URL reference or bookmark.
+        """
+        # Strong indicators of web clipping (HTML structure)
+        html_indicators = [
+            r'<html',
+            r'<div[^>]*>.*</div>',  # Actual div content, not just isolated tags
+            r'<span[^>]*>.*</span>',  # Actual span content
+            r'<p[^>]*>.*</p>',  # Actual paragraph content
+            r'<article[^>]*>',
+            r'<section[^>]*>',
+            r'<header[^>]*>',
+            r'<main[^>]*>',
+        ]
+        
+        # Count HTML tags - if there are many, it's likely a web clipping
+        html_tag_count = len(re.findall(r'<[^>]+>', content))
+        
+        # Count total content words (excluding HTML)
+        clean_text = re.sub(r'<[^>]+>', ' ', content)
+        word_count = len(clean_text.split())
+        
+        # Web clipping indicators:
+        # 1. Has substantial HTML structure (multiple tags)
+        # 2. Has substantial text content (not just a URL + short description)
+        # 3. Contains specific HTML elements that indicate scraped content
+        
+        has_html_structure = any(re.search(pattern, content, re.IGNORECASE | re.DOTALL) 
+                               for pattern in html_indicators)
+        has_many_html_tags = html_tag_count > 5
+        has_substantial_content = word_count > 50
+        
+        # Additional indicators of web scraping
+        web_scraping_indicators = [
+            r'Published by',
+            r'By\s+[A-Z][a-z]+\s+[A-Z][a-z]+',  # "By Author Name"
+            r'Copyright\s+©',
+            r'© \d{4}',
+            r'AddThis Sharing',
+            r'Share on',
+            r'Follow us on',
+            r'Subscribe to',
+            r'Read more',
+            r'Continue reading',
+            r'View original',
+        ]
+        
+        has_web_metadata = any(re.search(pattern, content, re.IGNORECASE) 
+                              for pattern in web_scraping_indicators)
+        
+        # It's a web clipping if:
+        # - Has HTML structure AND substantial content, OR
+        # - Has many HTML tags, OR  
+        # - Has clear web scraping metadata, OR
+        # - Has moderate content with some HTML indicators
+        has_moderate_content = word_count > 25 and html_tag_count > 2
+        
+        return ((has_html_structure and has_substantial_content) or 
+                has_many_html_tags or 
+                has_web_metadata or
+                has_moderate_content)
     
     def _is_academic_content(self, content: str) -> bool:
         """Check if content is academic in nature."""
@@ -640,6 +796,9 @@ class ContentProcessor:
         if not content:
             return content
         
+        # First, clean up malformed URLs and broken links
+        content = self._clean_malformed_urls(content)
+        
         lines = content.split('\n')
         cleaned_lines = []
         in_article_content = False
@@ -727,5 +886,44 @@ class ContentProcessor:
             cleaned_lines.append(line)
         
         return '\n'.join(cleaned_lines)
+    
+    def _clean_malformed_urls(self, content: str) -> str:
+        """Clean malformed URLs and broken links that cause processing issues.
+        
+        Args:
+            content: Content to clean
+            
+        Returns:
+            Content with malformed URLs cleaned
+        """
+        if not content:
+            return content
+        
+        # Patterns for malformed/problematic content that causes infinite loops
+        malformed_patterns = [
+            # Complex malformed Obsidian links with embedded markdown and URLs
+            r'!\[\[attachments/[^\]]*\]\]!\[\[attachments/[^\]]*\]\]\]\(http[^\)]*\)',
+            # URLs with trailing punctuation that breaks parsing
+            r'(https?://[^\s\)]+)\)\s*\)',
+            r'(https?://[^\s\)]+)\?\s*\)',
+            # Malformed email tracking URLs (too long and complex)
+            r'http://tk\.wsjemail\.com/track\?[^\s\)]{200,}',
+            # Broken Obsidian link syntax
+            r'!\[\[attachments/[^\]]*\]\]!\[\[attachments/[^\]]*\]\]',
+            # URLs that look like filesystem paths (probably broken)
+            r'https?://[^\s]*\$FILE/[^\s]*',
+            # Complex malformed patterns with mixed syntax
+            r'[![^]]*\]\([^)]*\$FILE[^)]*\)',
+        ]
+        
+        # Apply cleaning patterns
+        for pattern in malformed_patterns:
+            content = re.sub(pattern, '', content, flags=re.IGNORECASE | re.MULTILINE)
+        
+        # Clean up extra whitespace left by removals
+        content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
+        content = re.sub(r'  +', ' ', content)
+        
+        return content.strip()
     
 
