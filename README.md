@@ -90,6 +90,32 @@ poetry run obsidian-curator curate --sample-size 5 /Users/jose/Documents/Obsidia
 poetry run obsidian-curator curate /Users/jose/Documents/Obsidian/Evermd curated-vault
 ```
 
+### Graphical User Interface (GUI)
+
+Launch the intuitive PyQt6 GUI for easy vault curation:
+
+```bash
+# Launch the GUI application
+poetry run obsidian-curator-gui
+
+# Or run directly
+poetry run python -m obsidian_curator.gui
+```
+
+**GUI Features:**
+- **Simple Configuration**: Set source vault and output folder with browse dialogs
+- **Run Options**: Choose between full run or test run with custom sample size
+- **Real-time Progress**: Live progress bar and current operation display
+- **Live Statistics**: See total, curated, and rejected notes with processing time
+- **Theme Analysis**: View theme distribution as notes are processed
+- **Note Preview**: Browse curated notes with quality scores and content preview
+- **Professional Quality Metrics**: Track analytical depth, evidence quality, and writing readiness
+
+**Default Settings:**
+- Source vault: `/Users/jose/Documents/Obsidian/Evermd`
+- Uses configuration from `config.yaml`
+- Test run default: 10 notes sample
+
 ### Command Line Interface
 
 The easiest way to use Obsidian Curator is through the command line:

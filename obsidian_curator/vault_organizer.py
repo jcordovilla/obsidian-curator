@@ -92,6 +92,7 @@ class VaultOrganizer:
             # Determine folder path
             if theme_name == "unknown":
                 folder_path = vault_structure.root_path / "miscellaneous"
+                folder_path.mkdir(parents=True, exist_ok=True)
             else:
                 folder_path = vault_structure.theme_folders.get(theme_name)
                 if not folder_path:
@@ -102,6 +103,8 @@ class VaultOrganizer:
                     else:
                         folder_path = vault_structure.root_path / theme_name
                     folder_path.mkdir(parents=True, exist_ok=True)
+                    # Store the created folder path for future use
+                    vault_structure.theme_folders[theme_name] = folder_path
             
             # Save notes to folder
             for result in results:
@@ -164,22 +167,58 @@ class VaultOrganizer:
         """
         content = []
         
-        # Add frontmatter
+        # Add frontmatter with enhanced professional writing metrics
         frontmatter = {
             "title": result.note.title,
             "curated_date": datetime.now().isoformat(),
             "original_source": result.note.source_url or "Unknown",
             "content_type": result.note.content_type.value,
             "quality_scores": {
+                # Core quality metrics
                 "overall": result.quality_scores.overall,
                 "relevance": result.quality_scores.relevance,
                 "completeness": result.quality_scores.completeness,
                 "credibility": result.quality_scores.credibility,
-                "clarity": result.quality_scores.clarity
+                "clarity": result.quality_scores.clarity,
+                # Professional writing metrics (NEW)
+                "analytical_depth": result.quality_scores.analytical_depth,
+                "evidence_quality": result.quality_scores.evidence_quality,
+                "critical_thinking": result.quality_scores.critical_thinking,
+                "argument_structure": result.quality_scores.argument_structure,
+                "practical_value": result.quality_scores.practical_value,
+                "professional_writing_score": result.quality_scores.professional_writing_score
             },
             "themes": [theme.name for theme in result.themes],
             "curation_reason": result.curation_reason
         }
+        
+        # Add enhanced theme information if available
+        if result.themes:
+            frontmatter["enhanced_themes"] = []
+            for theme in result.themes:
+                theme_info = {
+                    "name": theme.name,
+                    "confidence": theme.confidence,
+                    "expertise_level": theme.expertise_level,
+                    "content_category": theme.content_category,
+                    "business_value": theme.business_value,
+                    "subthemes": theme.subthemes,
+                    "keywords": theme.keywords
+                }
+                frontmatter["enhanced_themes"].append(theme_info)
+        
+        # Add content structure analysis if available
+        if result.content_structure:
+            frontmatter["content_structure"] = {
+                "has_clear_problem": result.content_structure.has_clear_problem,
+                "has_evidence": result.content_structure.has_evidence,
+                "has_multiple_perspectives": result.content_structure.has_multiple_perspectives,
+                "has_actionable_conclusions": result.content_structure.has_actionable_conclusions,
+                "logical_flow_score": result.content_structure.logical_flow_score,
+                "argument_coherence": result.content_structure.argument_coherence,
+                "conclusion_strength": result.content_structure.conclusion_strength,
+                "structure_quality_score": result.content_structure.structure_quality_score
+            }
         
         # Add original metadata if preserved
         if self.config.preserve_metadata and result.note.metadata:
@@ -205,23 +244,51 @@ class VaultOrganizer:
         content.append(f"# {result.note.title}")
         content.append("")
         
-        # Add curation information
+        # Add enhanced curation information
         content.append("## Curation Information")
         content.append("")
         content.append(f"- **Curated Date**: {frontmatter['curated_date']}")
         content.append(f"- **Quality Score**: {result.quality_scores.overall:.2f}/1.0")
         content.append(f"- **Relevance Score**: {result.quality_scores.relevance:.2f}/1.0")
+        content.append(f"- **Professional Writing Score**: {result.quality_scores.professional_writing_score:.2f}/1.0")
         content.append(f"- **Primary Theme**: {result.primary_theme.name if result.primary_theme else 'Unknown'}")
         content.append(f"- **Curation Reason**: {result.curation_reason}")
         content.append("")
         
-        # Add themes section
+        # Add professional writing metrics
+        content.append("## Professional Writing Quality Metrics")
+        content.append("")
+        content.append(f"- **Analytical Depth**: {result.quality_scores.analytical_depth:.2f}/1.0")
+        content.append(f"- **Evidence Quality**: {result.quality_scores.evidence_quality:.2f}/1.0")
+        content.append(f"- **Critical Thinking**: {result.quality_scores.critical_thinking:.2f}/1.0")
+        content.append(f"- **Argument Structure**: {result.quality_scores.argument_structure:.2f}/1.0")
+        content.append(f"- **Practical Value**: {result.quality_scores.practical_value:.2f}/1.0")
+        content.append("")
+        
+        # Add content structure analysis
+        if result.content_structure:
+            content.append("## Content Structure Analysis")
+            content.append("")
+            content.append(f"- **Structure Quality Score**: {result.content_structure.structure_quality_score:.2f}/1.0")
+            content.append(f"- **Has Clear Problem**: {'Yes' if result.content_structure.has_clear_problem else 'No'}")
+            content.append(f"- **Has Evidence**: {'Yes' if result.content_structure.has_evidence else 'No'}")
+            content.append(f"- **Multiple Perspectives**: {'Yes' if result.content_structure.has_multiple_perspectives else 'No'}")
+            content.append(f"- **Actionable Conclusions**: {'Yes' if result.content_structure.has_actionable_conclusions else 'No'}")
+            content.append(f"- **Logical Flow**: {result.content_structure.logical_flow_score:.2f}/1.0")
+            content.append(f"- **Argument Coherence**: {result.content_structure.argument_coherence:.2f}/1.0")
+            content.append(f"- **Conclusion Strength**: {result.content_structure.conclusion_strength:.2f}/1.0")
+            content.append("")
+        
+        # Add enhanced themes section
         if result.themes:
             content.append("## Identified Themes")
             content.append("")
             for theme in result.themes:
                 content.append(f"### {theme.name}")
                 content.append(f"- **Confidence**: {theme.confidence:.2f}")
+                content.append(f"- **Expertise Level**: {theme.expertise_level}")
+                content.append(f"- **Content Category**: {theme.content_category}")
+                content.append(f"- **Business Value**: {theme.business_value}")
                 if theme.subthemes:
                     content.append(f"- **Sub-themes**: {', '.join(theme.subthemes)}")
                 if theme.keywords:

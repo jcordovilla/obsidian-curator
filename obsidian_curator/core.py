@@ -207,18 +207,19 @@ class ObsidianCurator:
         with tqdm(notes, desc="AI analysis", unit="notes") as pbar:
             for note in pbar:
                 try:
-                    # Perform AI analysis
-                    quality_scores, themes, curation_reason = self.ai_analyzer.analyze_note(note)
+                    # Perform AI analysis with enhanced metrics
+                    quality_scores, themes, content_structure, curation_reason = self.ai_analyzer.analyze_note(note)
                     
                     # Determine if note should be curated
                     is_curated = self._should_curate(quality_scores, themes)
                     
-                    # Create curation result
+                    # Create curation result with enhanced metrics
                     result = CurationResult(
                         note=note,
                         cleaned_content=note.content,  # Content already cleaned
                         quality_scores=quality_scores,
                         themes=themes,
+                        content_structure=content_structure,  # NEW: Include content structure
                         is_curated=is_curated,
                         curation_reason=curation_reason,
                         processing_notes=[]
@@ -236,17 +237,25 @@ class ObsidianCurator:
                     
                 except Exception as e:
                     logger.warning(f"Failed to analyze note {note.title}: {e}")
-                    # Create a failed result
-                    from .models import QualityScore, Theme
+                    # Create a failed result with enhanced defaults
+                    from .models import QualityScore, Theme, ContentStructure
                     default_scores = QualityScore(
                         overall=0.0, relevance=0.0, completeness=0.0, 
-                        credibility=0.0, clarity=0.0
+                        credibility=0.0, clarity=0.0,
+                        analytical_depth=0.0, evidence_quality=0.0, critical_thinking=0.0,
+                        argument_structure=0.0, practical_value=0.0
+                    )
+                    default_structure = ContentStructure(
+                        has_clear_problem=False, has_evidence=False, has_multiple_perspectives=False,
+                        has_actionable_conclusions=False, logical_flow_score=0.0,
+                        argument_coherence=0.0, conclusion_strength=0.0
                     )
                     result = CurationResult(
                         note=note,
                         cleaned_content=note.content,
                         quality_scores=default_scores,
                         themes=[],
+                        content_structure=default_structure,  # NEW: Include content structure
                         is_curated=False,
                         curation_reason=f"Analysis failed: {str(e)}",
                         processing_notes=[f"AI analysis failed: {str(e)}"]
