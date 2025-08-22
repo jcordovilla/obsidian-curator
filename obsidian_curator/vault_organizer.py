@@ -45,7 +45,9 @@ class VaultOrganizer:
         
         # Create theme groups
         from .theme_classifier import ThemeClassifier
-        theme_classifier = ThemeClassifier()
+        theme_classifier = ThemeClassifier(
+            self.config.theme_similarity_threshold
+        )
         theme_groups = theme_classifier.classify_themes(curated_results)
         
         # Save curated notes to theme folders
@@ -123,9 +125,13 @@ class VaultOrganizer:
             result: Curation result to save
             folder_path: Folder to save the note in
         """
-        # Generate filename
+        # Generate filename and ensure uniqueness
         filename = self._generate_filename(result.note.title)
         file_path = folder_path / f"{filename}.md"
+        counter = 1
+        while file_path.exists():
+            file_path = folder_path / f"{filename}_{counter}.md"
+            counter += 1
         
         # Create note content
         note_content = self._create_note_content(result)
@@ -330,7 +336,9 @@ class VaultOrganizer:
         
         # Save theme analysis
         from .theme_classifier import ThemeClassifier
-        theme_classifier = ThemeClassifier()
+        theme_classifier = ThemeClassifier(
+            self.config.theme_similarity_threshold
+        )
         theme_analysis = theme_classifier.generate_theme_analysis(theme_groups, vault_structure)
         vault_structure.theme_analysis_path.write_text(theme_analysis, encoding='utf-8')
         

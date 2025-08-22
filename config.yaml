@@ -22,6 +22,7 @@ target_themes:
 preserve_metadata: true  # Whether to preserve original note metadata
 clean_html: true        # Whether to clean HTML content from web clippings
 remove_duplicates: true # Whether to remove duplicate content
+theme_similarity_threshold: 0.3 # Similarity threshold for fuzzy theme matching
 
 # Sample Size (for testing - leave null for all notes)
 sample_size: null       # Number of notes to process (random sample)

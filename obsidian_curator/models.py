@@ -222,6 +222,12 @@ class CurationConfig(BaseModel):
     preserve_metadata: bool = Field(default=True, description="Whether to preserve original metadata")
     clean_html: bool = Field(default=True, description="Whether to clean HTML content")
     remove_duplicates: bool = Field(default=True, description="Whether to remove duplicate content")
+    theme_similarity_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Similarity threshold for fuzzy theme matching",
+    )
     
     class Config:
         """Pydantic configuration."""

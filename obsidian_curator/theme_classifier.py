@@ -12,9 +12,10 @@ from .models import Theme, CurationResult, VaultStructure
 
 class ThemeClassifier:
     """Classifies and organizes content by themes."""
-    
-    def __init__(self):
+
+    def __init__(self, similarity_threshold: float = 0.3):
         """Initialize the theme classifier."""
+        self.similarity_threshold = similarity_threshold
         # Predefined theme hierarchy for infrastructure and construction
         self.theme_hierarchy = {
             "infrastructure": {
@@ -160,7 +161,7 @@ class ThemeClassifier:
                         best_match = f"{main_theme}/{subtheme}"
         
         # Only return match if similarity is above threshold
-        if best_score > 0.3:
+        if best_score > self.similarity_threshold:
             return best_match
         
         return "unknown"

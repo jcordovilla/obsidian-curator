@@ -24,6 +24,7 @@ from PyQt6.QtGui import QFont, QPalette, QColor
 
 from .core import ObsidianCurator
 from .models import CurationConfig, CurationStats, CurationResult
+from .note_discovery import discover_markdown_files
 
 
 class CurationWorker(QThread):
@@ -113,32 +114,7 @@ class CurationWorker(QThread):
             processor.content_extractor.max_urls_per_note = 1  # Limit URLs for faster processing
             processor.content_extractor.max_pdf_pages = 20  # Limit PDF pages for faster processing
         
-        # Find all markdown files
-        markdown_files = []
-        for pattern in ['*.md', '*.markdown']:
-            markdown_files.extend(self.input_path.rglob(pattern))
-        
-        # Filter out system files
-        excluded_patterns = ['.obsidian', '.trash', 'templates', 'template', '.git']
-        valid_files = []
-        
-        for file_path in markdown_files:
-            # Skip hidden files and system directories
-            if any(part.startswith('.') for part in file_path.parts):
-                continue
-            
-            # Skip excluded patterns
-            if any(excluded in str(file_path).lower() for excluded in excluded_patterns):
-                continue
-            
-            # Skip empty files
-            try:
-                if file_path.stat().st_size == 0:
-                    continue
-            except OSError:
-                continue
-            
-            valid_files.append(file_path)
+        valid_files = discover_markdown_files(self.input_path)
         
         # For sample runs, randomly shuffle files BEFORE processing
         if self.config.sample_size:

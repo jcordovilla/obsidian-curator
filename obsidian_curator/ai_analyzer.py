@@ -1,8 +1,7 @@
 """AI-powered content analysis using Ollama."""
 
 import json
-import re
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 
 import ollama
@@ -30,6 +29,20 @@ class AIAnalyzer:
         except Exception as e:
             logger.error(f"Failed to connect to Ollama: {e}")
             raise
+
+    def _chat_json(self, system_prompt: str, prompt: str, temperature: float = 0.1) -> Any:
+        """Call Ollama chat API requesting JSON output."""
+        response = ollama.chat(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            format="json",
+            options={"temperature": temperature},
+        )
+        content = response["message"]["content"].strip()
+        return json.loads(content)
     
     def analyze_note(self, note: Note) -> Tuple[QualityScore, List[Theme], ContentStructure, str]:
         """Analyze a note for quality, themes, content structure, and curation decision.
@@ -236,65 +249,41 @@ Only provide the JSON response, no other text.
 """
         
         try:
-            response = ollama.chat(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                options={"temperature": 0.15}  # Low temperature for consistent structured output
+            response_data = self._chat_json(system_prompt, prompt, temperature=0.15)
+
+            # Parse quality scores with new professional writing metrics
+            quality_data = response_data.get("quality", {})
+            quality_scores = QualityScore(
+                overall=float(quality_data.get("overall", 0.5)),
+                relevance=float(quality_data.get("relevance", 0.5)),
+                completeness=float(quality_data.get("completeness", 0.5)),
+                credibility=float(quality_data.get("credibility", 0.5)),
+                clarity=float(quality_data.get("clarity", 0.5)),
+                analytical_depth=float(quality_data.get("analytical_depth", 0.5)),
+                evidence_quality=float(quality_data.get("evidence_quality", 0.5)),
+                critical_thinking=float(quality_data.get("critical_thinking", 0.5)),
+                argument_structure=float(quality_data.get("argument_structure", 0.5)),
+                practical_value=float(quality_data.get("practical_value", 0.5)),
             )
-            
-            content = response['message']['content'].strip()
-            
-            # Extract JSON from response
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if json_match:
-                response_data = json.loads(json_match.group())
-                
-                # Parse quality scores with new professional writing metrics
-                quality_data = response_data.get('quality', {})
-                quality_scores = QualityScore(
-                    # Core metrics
-                    overall=float(quality_data.get('overall', 0.5)),
-                    relevance=float(quality_data.get('relevance', 0.5)),
-                    completeness=float(quality_data.get('completeness', 0.5)),
-                    credibility=float(quality_data.get('credibility', 0.5)),
-                    clarity=float(quality_data.get('clarity', 0.5)),
-                    # Professional writing metrics (NEW)
-                    analytical_depth=float(quality_data.get('analytical_depth', 0.5)),
-                    evidence_quality=float(quality_data.get('evidence_quality', 0.5)),
-                    critical_thinking=float(quality_data.get('critical_thinking', 0.5)),
-                    argument_structure=float(quality_data.get('argument_structure', 0.5)),
-                    practical_value=float(quality_data.get('practical_value', 0.5))
+
+            themes_data = response_data.get("themes", [])
+            themes: List[Theme] = []
+            for theme_data in themes_data:
+                theme = Theme(
+                    name=theme_data.get("name", "Unknown"),
+                    confidence=float(theme_data.get("confidence", 0.5)),
+                    subthemes=theme_data.get("subthemes", []),
+                    keywords=theme_data.get("keywords", []),
+                    expertise_level=theme_data.get("expertise_level", "intermediate"),
+                    content_category=theme_data.get("content_category", "technical"),
+                    business_value=theme_data.get("business_value", "operational"),
                 )
-                
-                # Parse themes with enhanced professional insight classification
-                themes_data = response_data.get('themes', [])
-                themes = []
-                for theme_data in themes_data:
-                    theme = Theme(
-                        # Core theme fields
-                        name=theme_data.get('name', 'Unknown'),
-                        confidence=float(theme_data.get('confidence', 0.5)),
-                        subthemes=theme_data.get('subthemes', []),
-                        keywords=theme_data.get('keywords', []),
-                        # Professional insight classification (NEW)
-                        expertise_level=theme_data.get('expertise_level', 'intermediate'),
-                        content_category=theme_data.get('content_category', 'technical'),
-                        business_value=theme_data.get('business_value', 'operational')
-                    )
-                    themes.append(theme)
-                
-                # Ensure at least one theme
-                if not themes:
-                    themes = [self._default_theme()]
-                
-                return quality_scores, themes
-            else:
-                logger.warning(f"Could not extract JSON from AI response: {content}")
-                return self._default_quality_scores(), [self._default_theme()]
-                
+                themes.append(theme)
+
+            if not themes:
+                themes = [self._default_theme()]
+
+            return quality_scores, themes
         except Exception as e:
             logger.error(f"Failed to perform combined analysis: {e}")
             return self._default_quality_scores(), [self._default_theme()]
@@ -336,33 +325,14 @@ Only provide the JSON response, no other text.
 """
         
         try:
-            response = ollama.chat(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                options={"temperature": 0.1}  # Very low temperature for consistent scoring
+            scores_data = self._chat_json(system_prompt, prompt, temperature=0.1)
+            return QualityScore(
+                overall=float(scores_data.get("overall", 0.5)),
+                relevance=float(scores_data.get("relevance", 0.5)),
+                completeness=float(scores_data.get("completeness", 0.5)),
+                credibility=float(scores_data.get("credibility", 0.5)),
+                clarity=float(scores_data.get("clarity", 0.5)),
             )
-            
-            content = response['message']['content'].strip()
-            
-            # Extract JSON from response
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if json_match:
-                scores_data = json.loads(json_match.group())
-                
-                return QualityScore(
-                    overall=float(scores_data.get('overall', 0.5)),
-                    relevance=float(scores_data.get('relevance', 0.5)),
-                    completeness=float(scores_data.get('completeness', 0.5)),
-                    credibility=float(scores_data.get('credibility', 0.5)),
-                    clarity=float(scores_data.get('clarity', 0.5))
-                )
-            else:
-                logger.warning(f"Could not extract JSON from AI response: {content}")
-                return self._default_quality_scores()
-                
         except Exception as e:
             logger.error(f"Failed to analyze quality: {e}")
             return self._default_quality_scores()
@@ -420,42 +390,22 @@ Only provide the JSON response, no other text.
 """
         
         try:
-            response = ollama.chat(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                options={"temperature": 0.2}  # Low temperature for consistent theme identification
-            )
-            
-            content = response['message']['content'].strip()
-            
-            # Extract JSON from response
-            json_match = re.search(r'\[.*\]', content, re.DOTALL)
-            if json_match:
-                themes_data = json.loads(json_match.group())
-                
-                themes = []
-                for theme_data in themes_data:
-                    theme = Theme(
-                        # Core theme fields
-                        name=theme_data.get('name', 'Unknown'),
-                        confidence=float(theme_data.get('confidence', 0.5)),
-                        subthemes=theme_data.get('subthemes', []),
-                        keywords=theme_data.get('keywords', []),
-                        # Professional insight classification (NEW)
-                        expertise_level=theme_data.get('expertise_level', 'intermediate'),
-                        content_category=theme_data.get('content_category', 'technical'),
-                        business_value=theme_data.get('business_value', 'operational')
-                    )
-                    themes.append(theme)
-                
-                return themes
-            else:
-                logger.warning(f"Could not extract themes JSON from AI response: {content}")
-                return [self._default_theme()]
-                
+            themes_data = self._chat_json(system_prompt, prompt, temperature=0.2)
+
+            themes: List[Theme] = []
+            for theme_data in themes_data:
+                theme = Theme(
+                    name=theme_data.get("name", "Unknown"),
+                    confidence=float(theme_data.get("confidence", 0.5)),
+                    subthemes=theme_data.get("subthemes", []),
+                    keywords=theme_data.get("keywords", []),
+                    expertise_level=theme_data.get("expertise_level", "intermediate"),
+                    content_category=theme_data.get("content_category", "technical"),
+                    business_value=theme_data.get("business_value", "operational"),
+                )
+                themes.append(theme)
+
+            return themes
         except Exception as e:
             logger.error(f"Failed to identify themes: {e}")
             return [self._default_theme()]
@@ -503,35 +453,17 @@ Only provide the JSON response, no other text.
 """
         
         try:
-            response = ollama.chat(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                options={"temperature": 0.1}  # Very low temperature for consistent structural analysis
+            structure_data = self._chat_json(system_prompt, prompt, temperature=0.1)
+
+            return ContentStructure(
+                has_clear_problem=structure_data.get("has_clear_problem", False),
+                has_evidence=structure_data.get("has_evidence", False),
+                has_multiple_perspectives=structure_data.get("has_multiple_perspectives", False),
+                has_actionable_conclusions=structure_data.get("has_actionable_conclusions", False),
+                logical_flow_score=float(structure_data.get("logical_flow_score", 0.5)),
+                argument_coherence=float(structure_data.get("argument_coherence", 0.5)),
+                conclusion_strength=float(structure_data.get("conclusion_strength", 0.5)),
             )
-            
-            content = response['message']['content'].strip()
-            
-            # Extract JSON from response
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if json_match:
-                structure_data = json.loads(json_match.group())
-                
-                return ContentStructure(
-                    has_clear_problem=structure_data.get('has_clear_problem', False),
-                    has_evidence=structure_data.get('has_evidence', False),
-                    has_multiple_perspectives=structure_data.get('has_multiple_perspectives', False),
-                    has_actionable_conclusions=structure_data.get('has_actionable_conclusions', False),
-                    logical_flow_score=float(structure_data.get('logical_flow_score', 0.5)),
-                    argument_coherence=float(structure_data.get('argument_coherence', 0.5)),
-                    conclusion_strength=float(structure_data.get('conclusion_strength', 0.5))
-                )
-            else:
-                logger.warning(f"Could not extract structure JSON from AI response: {content}")
-                return self._default_content_structure()
-                
         except Exception as e:
             logger.error(f"Failed to analyze content structure: {e}")
             return self._default_content_structure()
