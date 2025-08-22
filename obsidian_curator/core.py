@@ -9,13 +9,18 @@ from loguru import logger
 from tqdm import tqdm
 
 from .models import (
-    Note, CurationResult, CurationConfig, CurationStats, 
-    VaultStructure, ProcessingCheckpoint
+    Note,
+    CurationResult,
+    CurationConfig,
+    CurationStats,
+    VaultStructure,
+    ProcessingCheckpoint,
 )
 from .content_processor import ContentProcessor
 from .ai_analyzer import AIAnalyzer
 from .theme_classifier import ThemeClassifier
 from .vault_organizer import VaultOrganizer
+from .note_discovery import discover_markdown_files
 
 
 class ObsidianCurator:
@@ -37,7 +42,9 @@ class ObsidianCurator:
             ai_model=config.ai_model  # Pass AI model for content curation
         )
         self.ai_analyzer = AIAnalyzer(config)
-        self.theme_classifier = ThemeClassifier()
+        self.theme_classifier = ThemeClassifier(
+            similarity_threshold=config.theme_similarity_threshold
+        )
         self.vault_organizer = VaultOrganizer(config)
         
         logger.info("Obsidian Curator initialized")
@@ -114,44 +121,8 @@ class ObsidianCurator:
             List of discovered Note objects
         """
         notes = []
-        
-        # Find all markdown files
-        markdown_files = []
-        for pattern in ['*.md', '*.markdown']:
-            markdown_files.extend(input_path.rglob(pattern))
-        
-        # Filter out system files and templates
-        excluded_patterns = [
-            '.obsidian',
-            '.trash',
-            'templates',
-            'template',
-            '.git'
-        ]
-        
-        valid_files = []
-        for file_path in markdown_files:
-            # Skip hidden files and system directories
-            if any(part.startswith('.') for part in file_path.parts):
-                if not any(excluded in str(file_path).lower() for excluded in excluded_patterns):
-                    continue
-            
-            # Skip excluded patterns
-            if any(excluded in str(file_path).lower() for excluded in excluded_patterns):
-                continue
-            
-            # Skip empty files
-            try:
-                if file_path.stat().st_size == 0:
-                    continue
-            except OSError:
-                continue
-            
-            valid_files.append(file_path)
-        
-        # Sort by modification time (newest first)
-        valid_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-        
+        valid_files = discover_markdown_files(input_path)
+
         logger.info(f"Found {len(valid_files)} valid markdown files")
         
         # Process files with progress bar

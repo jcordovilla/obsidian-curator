@@ -1,0 +1,33 @@
+<!--.*?-->
+<script[^>]*>.*?</script>
+<style[^>]*>.*?</style>
+<div[^>]*class="[^"]*ad[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*social[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*cookie[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*popup[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*nav[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*menu[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*header[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*footer[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*sidebar[^"]*"[^>]*>.*?</div>
+<nav[^>]*>.*?</nav>
+<header[^>]*>.*?</header>
+<footer[^>]*>.*?</footer>
+<aside[^>]*>.*?</aside>
+\[Saltar a.*?\]
+\(Publicidad\)
+PUBLICIDAD
+Copyright.*?\..*?$
+Cotizaciones.*?redistribuir.*?información.*?$
+Yahoo!.*?Finanzas.*?México
+Haz de Y! tu página.*?inicio
+@\w+\s+en\s+Twitter
+hazte fan en.*?Facebook
+Ver más.*»
+Mostrar más
+\d+\s*-\s*\d+\s+de\s+\d+
+mar,.*?\d{4}.*?CDT
+Hace \d+.*?horas?
+Reuters.*?Hace.*?horas?
+AFP.*?Hace.*?horas?
+EFE.*?Hace.*?horas?

@@ -57,41 +57,18 @@ class ContentProcessor:
         ]
         
         # Aggressive web clutter patterns
-        self.clutter_patterns = [
-            r'<!--.*?-->',  # HTML comments
-            r'<script[^>]*>.*?</script>',  # JavaScript
-            r'<style[^>]*>.*?</style>',  # CSS
-            r'<div[^>]*class="[^"]*ad[^"]*"[^>]*>.*?</div>',  # Ad containers
-            r'<div[^>]*class="[^"]*social[^"]*"[^>]*>.*?</div>',  # Social media widgets
-            r'<div[^>]*class="[^"]*cookie[^"]*"[^>]*>.*?</div>',  # Cookie notices
-            r'<div[^>]*class="[^"]*popup[^"]*"[^>]*>.*?</div>',  # Popup overlays
-            r'<div[^>]*class="[^"]*nav[^"]*"[^>]*>.*?</div>',  # Navigation
-            r'<div[^>]*class="[^"]*menu[^"]*"[^>]*>.*?</div>',  # Menus
-            r'<div[^>]*class="[^"]*header[^"]*"[^>]*>.*?</div>',  # Headers
-            r'<div[^>]*class="[^"]*footer[^"]*"[^>]*>.*?</div>',  # Footers
-            r'<div[^>]*class="[^"]*sidebar[^"]*"[^>]*>.*?</div>',  # Sidebars
-            r'<nav[^>]*>.*?</nav>',  # Navigation elements
-            r'<header[^>]*>.*?</header>',  # Header elements
-            r'<footer[^>]*>.*?</footer>',  # Footer elements
-            r'<aside[^>]*>.*?</aside>',  # Aside elements
-            r'\[Saltar a.*?\]',  # Skip navigation links
-            r'\(Publicidad\)',  # Advertisement markers
-            r'PUBLICIDAD',  # Advertisement text
-            r'Copyright.*?\..*?$',  # Copyright notices
-            r'Cotizaciones.*?redistribuir.*?información.*?$',  # Legal disclaimers
-            r'Yahoo!.*?Finanzas.*?México',  # Site branding
-            r'Haz de Y! tu página.*?inicio',  # Yahoo branding
-            r'@\w+\s+en\s+Twitter',  # Social media links
-            r'hazte fan en.*?Facebook',  # Facebook links
-            r'Ver más.*?»',  # "See more" links
-            r'Mostrar más',  # "Show more" links
-            r'\d+\s*-\s*\d+\s+de\s+\d+',  # Pagination
-            r'mar,.*?\d{4}.*?CDT',  # Date/time stamps
-            r'Hace \d+.*?horas?',  # "X hours ago" timestamps
-            r'Reuters.*?Hace.*?horas?',  # News source timestamps
-            r'AFP.*?Hace.*?horas?',  # News source timestamps
-            r'EFE.*?Hace.*?horas?',  # News source timestamps
-        ]
+        patterns_path = Path(__file__).with_name('clutter_patterns.txt')
+        if patterns_path.exists():
+            pattern_strings = [
+                line.strip()
+                for line in patterns_path.read_text(encoding='utf-8').splitlines()
+                if line.strip()
+            ]
+            self.clutter_patterns = [
+                re.compile(pat, re.IGNORECASE | re.DOTALL) for pat in pattern_strings
+            ]
+        else:
+            self.clutter_patterns = []
     
     def process_note(self, file_path: Path) -> Note:
         """Process a single note file and return a Note object.
@@ -423,7 +400,7 @@ class ContentProcessor:
         
         # Remove HTML comments and clutter
         for pattern in self.clutter_patterns:
-            content = re.sub(pattern, '', content, flags=re.IGNORECASE | re.DOTALL)
+            content = pattern.sub('', content)
         
         # Check if content is primarily HTML or Markdown
         html_indicators = ['<div', '<span', '<table', '<tr', '<td', '<p>', '<ul', '<ol', '<li']
