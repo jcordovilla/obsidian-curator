@@ -20,29 +20,124 @@ class AIAnalyzer:
             config: Curation configuration
         """
         self.config = config
-        self.model = config.ai_model
+        self.model = config.ai_model  # Default/fallback model
         
-        # Test connection to Ollama
+        # Test connection to Ollama and validate models
         try:
-            ollama.list()
-            logger.info(f"Connected to Ollama, using model: {self.model}")
+            available_models = ollama.list()
+            model_names = [m['name'] for m in available_models.get('models', [])]
+            
+            # Validate that all configured models are available
+            missing_models = []
+            for task, model_name in {
+                'content_curation': config.models.content_curation,
+                'quality_analysis': config.models.quality_analysis,
+                'theme_classification': config.models.theme_classification,
+                'structure_analysis': config.models.structure_analysis,
+                'fallback': config.models.fallback
+            }.items():
+                if model_name not in model_names:
+                    missing_models.append(f"{task}: {model_name}")
+            
+            if missing_models:
+                logger.warning(f"Missing models: {', '.join(missing_models)}. Will use fallback model.")
+            
+            logger.info(f"Connected to Ollama with multi-model setup:")
+            logger.info(f"  Content Curation: {config.models.content_curation}")
+            logger.info(f"  Quality Analysis: {config.models.quality_analysis}")
+            logger.info(f"  Theme Classification: {config.models.theme_classification}")
+            logger.info(f"  Structure Analysis: {config.models.structure_analysis}")
+            logger.info(f"  Fallback: {config.models.fallback}")
+            
         except Exception as e:
             logger.error(f"Failed to connect to Ollama: {e}")
             raise
 
-    def _chat_json(self, system_prompt: str, prompt: str, temperature: float = 0.1) -> Any:
+    def _get_model_for_task(self, task: str) -> str:
+        """Get the optimal model for a specific task.
+        
+        Args:
+            task: Task name (content_curation, quality_analysis, theme_classification, structure_analysis)
+            
+        Returns:
+            Model name to use for the task
+        """
+        task_models = {
+            'content_curation': self.config.models.content_curation,
+            'quality_analysis': self.config.models.quality_analysis,  
+            'theme_classification': self.config.models.theme_classification,
+            'structure_analysis': self.config.models.structure_analysis
+        }
+        
+        model = task_models.get(task, self.config.models.fallback)
+        logger.debug(f"Using model '{model}' for task '{task}'")
+        return model
+
+    def _chat_json(self, system_prompt: str, prompt: str, temperature: float = 0.1, task: str = "fallback") -> Any:
         """Call Ollama chat API requesting JSON output."""
-        response = ollama.chat(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            format="json",
-            options={"temperature": temperature},
-        )
-        content = response["message"]["content"].strip()
-        return json.loads(content)
+        try:
+            model = self._get_model_for_task(task)
+            response = ollama.chat(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                format="json",
+                options={"temperature": temperature},
+            )
+            content = response["message"]["content"].strip()
+            
+            # Debug: Log the raw response for troubleshooting
+            logger.info(f"Ollama response length: {len(content)} chars")
+            logger.debug(f"Raw Ollama response: {repr(content)}")
+            
+            # Handle empty responses
+            if not content:
+                logger.warning("Empty response from Ollama, using fallback")
+                return {}
+            
+            # Clean up potential control characters
+            content = ''.join(char for char in content if ord(char) >= 32 or char in '\n\r\t')
+            
+            # Try to extract JSON if response contains extra text
+            if '{' in content and '}' in content:
+                start = content.find('{')
+                end = content.rfind('}') + 1
+                json_content = content[start:end]
+                
+                # Fix common malformed JSON patterns
+                json_content = self._fix_malformed_json(json_content)
+            else:
+                json_content = content
+            
+            return json.loads(json_content)
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from Ollama response: {e}")
+            logger.error(f"Raw content: {repr(content)}")
+            return {}
+        except Exception as e:
+            logger.error(f"Error calling Ollama: {e}")
+            return {}
+    
+    def _fix_malformed_json(self, json_str: str) -> str:
+        """Fix common JSON malformation patterns seen in Ollama responses."""
+        import re
+        
+        # Fix: {": "quality" -> {"quality" (the main issue from the logs)
+        json_str = re.sub(r'\{":\s*"([^"]+)"', r'{"\1"', json_str)
+        
+        # Fix: Missing quotes around property names  
+        json_str = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', json_str)
+        
+        # Fix: Trailing commas before closing braces/brackets
+        json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+        
+        # Fix: Single quotes to double quotes (in case AI uses single quotes)
+        json_str = re.sub(r"'([^']*)'", r'"\1"', json_str)
+        
+        return json_str
     
     def analyze_note(self, note: Note) -> Tuple[QualityScore, List[Theme], ContentStructure, str]:
         """Analyze a note for quality, themes, content structure, and curation decision.
@@ -53,17 +148,14 @@ class AIAnalyzer:
         Returns:
             Tuple of (quality_scores, themes, content_structure, curation_reason)
         """
-        logger.info(f"Analyzing note: {note.title}")
+        logger.info(f"Analyzing note: {note.title} (type: {note.content_type.value}, length: {len(note.content)} chars)")
         
         try:
             # Prepare content for analysis
             analysis_content = self._prepare_analysis_content(note)
             
-            # Combined analysis in single AI call for better performance
-            quality_scores, themes = self._combined_analysis(analysis_content, note)
-            
-            # Analyze content structure (NEW - targeting 90% accuracy)
-            content_structure = self._analyze_content_structure(analysis_content, note)
+            # Comprehensive analysis in single AI call for maximum performance
+            quality_scores, themes, content_structure = self._comprehensive_analysis(analysis_content, note)
             
             # Determine curation decision
             curation_reason = self._determine_curation_decision(quality_scores, themes, note)
@@ -72,18 +164,18 @@ class AIAnalyzer:
             
         except Exception as e:
             logger.error(f"Failed to analyze note {note.title}: {e}")
-            # Return default values on error
+            # Return default values on error - realistic conservative scores
             default_scores = QualityScore(
                 overall=0.5,
-                relevance=0.5,
-                completeness=0.5,
+                relevance=0.4,
+                completeness=0.45,
                 credibility=0.5,
                 clarity=0.5,
-                analytical_depth=0.5,
-                evidence_quality=0.5,
-                critical_thinking=0.5,
-                argument_structure=0.5,
-                practical_value=0.5
+                analytical_depth=0.3,
+                evidence_quality=0.3,
+                critical_thinking=0.35,
+                argument_structure=0.4,
+                practical_value=0.35
             )
             default_themes = [Theme(
                 name="unknown", 
@@ -176,6 +268,158 @@ Please analyze this content for:
         
         return '\n'.join(key_lines) if key_lines else ""
     
+    def _comprehensive_analysis(self, analysis_content: str, note: Note) -> Tuple[QualityScore, List[Theme], ContentStructure]:
+        """Comprehensive analysis in single AI call for maximum performance.
+        
+        Combines quality assessment, theme identification, and structure analysis
+        in one call using the optimal model for the complexity of the task.
+        
+        Args:
+            analysis_content: Formatted content for analysis
+            note: Note being analyzed
+            
+        Returns:
+            Tuple of (QualityScore, List[Theme], ContentStructure)
+        """
+        # Use quality analysis model (llama3.1:8b) for comprehensive analysis
+        system_prompt = f"""You are an expert content analyst specializing in infrastructure and construction content. Use {self.config.reasoning_level} reasoning to provide accurate, comprehensive analysis including quality assessment, theme identification, and structural analysis."""
+        
+        prompt = f"""
+{analysis_content}
+
+Please provide a COMPREHENSIVE analysis of this content covering quality, themes, and structure.
+
+1. PROFESSIONAL QUALITY ASSESSMENT - Provide scores from 0.0 to 1.0:
+   CORE METRICS:
+   - Overall Quality: How valuable and well-crafted is this content?
+   - Relevance: How relevant to infrastructure/construction professionals?
+   - Completeness: How complete and comprehensive are the ideas?
+   - Credibility: How trustworthy and authoritative is the source?
+   - Clarity: How clear, well-organized, and understandable?
+
+   PROFESSIONAL WRITING METRICS (Higher standards for publication-quality content):
+   - Analytical Depth: Does it synthesize multiple perspectives, challenge conventional thinking, or provide original insights? (0.1=simple news reporting, 0.9=sophisticated multi-faceted analysis)
+   - Evidence Quality: How strong are the data, case studies, and references? (0.1=unsupported claims, 0.9=well-documented with credible sources)
+   - Critical Thinking: Does it question assumptions, identify root causes, or challenge industry practices? (0.1=descriptive reporting, 0.9=transformative critical analysis)
+   - Argument Structure: Is there clear problem identification, systematic analysis, and actionable conclusions? (0.1=scattered facts, 0.9=coherent argument progression)
+   - Practical Value: Does it provide strategic insights or frameworks that professionals can apply? (0.1=general information, 0.9=actionable strategic guidance)
+
+   PRIORITIZE CONTENT THAT:
+   - Presents original analysis over news reporting
+   - Synthesizes multiple sources or perspectives
+   - Challenges conventional wisdom or identifies emerging trends
+   - Provides strategic frameworks or methodologies
+   - Offers lessons learned from case studies or failures
+
+2. ENHANCED THEME IDENTIFICATION - Focus on strategic infrastructure themes:
+   For each theme provide: name, confidence (0.0-1.0), subthemes, keywords
+   - expertise_level: "entry", "intermediate", "expert", or "thought_leader"
+   - content_category: "strategic", "tactical", "policy", "technical", or "operational"
+   - business_value: "operational", "strategic", "governance", or "innovation"
+   
+   PRIORITIZE THEMES THAT:
+   - Connect to broader industry trends or challenges
+   - Show cross-sector implications (PPPs, regulation, finance, technology)
+   - Reveal systemic issues or opportunities
+   - Demonstrate evolving best practices or methodologies
+   - Link infrastructure to economic/social/environmental outcomes
+
+3. CONTENT STRUCTURE ANALYSIS - Evaluate structural elements:
+   Boolean (true/false):
+   - Has Clear Problem: Does content identify a clear problem/question?
+   - Has Evidence: Does it provide supporting evidence/data/references?
+   - Has Multiple Perspectives: Does it consider multiple viewpoints?
+   - Has Actionable Conclusions: Does it provide actionable insights?
+   
+   Scores (0.0-1.0):
+   - Logical Flow Score: How well does content progress logically?
+   - Argument Coherence: How consistent are the arguments?
+   - Conclusion Strength: How strong are the conclusions?
+
+Respond with a JSON object like this:
+{{
+    "quality": {{
+        "overall": 0.8, "relevance": 0.9, "completeness": 0.7, "credibility": 0.8, "clarity": 0.9,
+        "analytical_depth": 0.8, "evidence_quality": 0.7, "critical_thinking": 0.9,
+        "argument_structure": 0.8, "practical_value": 0.8
+    }},
+    "themes": [
+        {{
+            "name": "Infrastructure Governance", "confidence": 0.9,
+            "subthemes": ["PPPs", "Regulation"], "keywords": ["governance", "policy"],
+            "expertise_level": "expert", "content_category": "strategic", "business_value": "governance"
+        }}
+    ],
+    "structure": {{
+        "has_clear_problem": true, "has_evidence": true, "has_multiple_perspectives": false,
+        "has_actionable_conclusions": true, "logical_flow_score": 0.8,
+        "argument_coherence": 0.7, "conclusion_strength": 0.9
+    }}
+}}
+
+Only provide the JSON response, no other text.
+"""
+        
+        try:
+            response_data = self._chat_json(system_prompt, prompt, temperature=0.15, task="quality_analysis")
+
+            # Handle empty or invalid JSON response
+            if not response_data or not isinstance(response_data, dict):
+                logger.warning(f"Invalid or empty comprehensive analysis response")
+                return self._default_quality_scores(), [self._default_theme()], self._default_content_structure()
+
+            # Parse quality scores
+            quality_data = response_data.get("quality", {})
+            quality_scores = QualityScore(
+                overall=float(quality_data.get("overall", 0.5)),
+                relevance=float(quality_data.get("relevance", 0.5)),
+                completeness=float(quality_data.get("completeness", 0.5)),
+                credibility=float(quality_data.get("credibility", 0.5)),
+                clarity=float(quality_data.get("clarity", 0.5)),
+                analytical_depth=float(quality_data.get("analytical_depth", 0.5)),
+                evidence_quality=float(quality_data.get("evidence_quality", 0.5)),
+                critical_thinking=float(quality_data.get("critical_thinking", 0.5)),
+                argument_structure=float(quality_data.get("argument_structure", 0.5)),
+                practical_value=float(quality_data.get("practical_value", 0.5))
+            )
+
+            # Parse themes
+            themes_data = response_data.get("themes", [])
+            themes = []
+            for theme_data in themes_data:
+                if isinstance(theme_data, dict):
+                    theme = Theme(
+                        name=theme_data.get("name", "Unknown"),
+                        confidence=float(theme_data.get("confidence", 0.5)),
+                        subthemes=theme_data.get("subthemes", []),
+                        keywords=theme_data.get("keywords", []),
+                        expertise_level=theme_data.get("expertise_level", "intermediate"),
+                        content_category=theme_data.get("content_category", "technical"),
+                        business_value=theme_data.get("business_value", "operational")
+                    )
+                    themes.append(theme)
+
+            if not themes:
+                themes = [self._default_theme()]
+
+            # Parse content structure
+            structure_data = response_data.get("structure", {})
+            content_structure = ContentStructure(
+                has_clear_problem=structure_data.get("has_clear_problem", False),
+                has_evidence=structure_data.get("has_evidence", False),
+                has_multiple_perspectives=structure_data.get("has_multiple_perspectives", False),
+                has_actionable_conclusions=structure_data.get("has_actionable_conclusions", False),
+                logical_flow_score=float(structure_data.get("logical_flow_score", 0.5)),
+                argument_coherence=float(structure_data.get("argument_coherence", 0.5)),
+                conclusion_strength=float(structure_data.get("conclusion_strength", 0.5))
+            )
+
+            return quality_scores, themes, content_structure
+
+        except Exception as e:
+            logger.error(f"Failed to perform comprehensive analysis: {e}")
+            return self._default_quality_scores(), [self._default_theme()], self._default_content_structure()
+    
     def _combined_analysis(self, analysis_content: str, note: Note) -> Tuple[QualityScore, List[Theme]]:
         """Combined quality and theme analysis in a single AI call for better performance.
         
@@ -249,7 +493,12 @@ Only provide the JSON response, no other text.
 """
         
         try:
-            response_data = self._chat_json(system_prompt, prompt, temperature=0.15)
+            response_data = self._chat_json(system_prompt, prompt, temperature=0.15, task="quality_analysis")
+
+            # Handle empty or invalid JSON response
+            if not response_data or not isinstance(response_data, dict):
+                logger.warning(f"Invalid or empty combined analysis response")
+                return self._default_quality_scores(), [self._default_theme()]
 
             # Parse quality scores with new professional writing metrics
             quality_data = response_data.get("quality", {})
@@ -326,6 +575,12 @@ Only provide the JSON response, no other text.
         
         try:
             scores_data = self._chat_json(system_prompt, prompt, temperature=0.1)
+            
+            # Handle empty or invalid JSON response
+            if not scores_data or not isinstance(scores_data, dict):
+                logger.warning(f"Invalid or empty quality scores response")
+                return self._default_quality_scores()
+            
             return QualityScore(
                 overall=float(scores_data.get("overall", 0.5)),
                 relevance=float(scores_data.get("relevance", 0.5)),
@@ -453,7 +708,12 @@ Only provide the JSON response, no other text.
 """
         
         try:
-            structure_data = self._chat_json(system_prompt, prompt, temperature=0.1)
+            structure_data = self._chat_json(system_prompt, prompt, temperature=0.1, task="structure_analysis")
+
+            # Handle empty or invalid JSON response
+            if not structure_data or not isinstance(structure_data, dict):
+                logger.warning(f"Invalid or empty content structure response")
+                return self._default_content_structure()
 
             return ContentStructure(
                 has_clear_problem=structure_data.get("has_clear_problem", False),
@@ -535,18 +795,18 @@ Only provide the JSON response, no other text.
     def _default_quality_scores(self) -> QualityScore:
         """Return default quality scores when AI analysis fails."""
         return QualityScore(
-            # Core metrics
+            # Core metrics - realistic conservative scores when AI fails
             overall=0.5,
-            relevance=0.5,
-            completeness=0.5,
+            relevance=0.4,
+            completeness=0.45,
             credibility=0.5,
             clarity=0.5,
-            # Professional writing metrics (NEW)
-            analytical_depth=0.5,
-            evidence_quality=0.5,
-            critical_thinking=0.5,
-            argument_structure=0.5,
-            practical_value=0.5
+            # Professional writing metrics (NEW) - conservative scores
+            analytical_depth=0.3,
+            evidence_quality=0.3,
+            critical_thinking=0.35,
+            argument_structure=0.4,
+            practical_value=0.35
         )
     
     def _default_theme(self) -> Theme:

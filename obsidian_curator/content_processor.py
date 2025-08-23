@@ -812,7 +812,7 @@ class ContentProcessor:
                     cleaned_lines.append(line)
                     continue
             
-            # Standard clutter removal for non-article content
+            # Enhanced clutter removal for web content
             clutter_indicators = [
                 'Buscar', 'buscar', 'Search', 'search',
                 'Yahoo!', 'Copyright', 'Todos los derechos',
@@ -825,7 +825,16 @@ class ContentProcessor:
                 'PUBLICIDAD', 'Publicidad', 'Productos Yahoo!',
                 'Más Buscados', 'Todo Sobre Los Mercados',
                 'Cotizaciones recientes', 'Hoy En Yahoo!',
-                'YAHOO! FINANZAS', 'Más Yahoo! Finanzas'
+                'YAHOO! FINANZAS', 'Más Yahoo! Finanzas',
+                # Additional web clutter patterns
+                'Tweet', 'Share', 'LinkedIn', 'Reddit', 'Pinterest',
+                'Read also:', 'Related articles:', 'You might also like:',
+                'Trending now:', 'Most popular:', 'Recommended for you:',
+                'Subscribe to', 'Newsletter', 'Follow us', 'Sign up',
+                'This page has been shared', 'View these Tweets',
+                'Paper Edition', 'Page:', 'Print', 'Email this',
+                'Next threat:', 'Shuttlers win', 'Undervalued',
+                'Glorious moment', 'A weekend at', 'Headlines News'
             ]
             
             # Skip lines that contain clutter indicators (but preserve timestamps in article context)
@@ -891,6 +900,15 @@ class ContentProcessor:
             r'https?://[^\s]*\$FILE/[^\s]*',
             # Complex malformed patterns with mixed syntax
             r'[![^]]*\]\([^)]*\$FILE[^)]*\)',
+            # Social media and sharing URLs
+            r'https?://twitter\.com/intent/tweet[^\s\)]*',
+            r'https?://[^\s]*facebook[^\s\)]*',
+            r'https?://[^\s]*linkedin[^\s\)]*',
+            # Broken Obsidian references with unknown filenames
+            r'!\[\[attachments/[^\]]*unknown_filename[^\]]*\]\]',
+            r'!\[\[[^\]]*resources/[^\]]*\]\]',
+            # Navigation links that are clearly not content
+            r'\[[^\]]*\]\(http://www\.thejakartapost\.com/news/\d{4}/\d{2}/\d{2}/[^\)]*\)',
         ]
         
         # Apply cleaning patterns

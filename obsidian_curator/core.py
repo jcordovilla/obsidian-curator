@@ -65,11 +65,11 @@ class ObsidianCurator:
         logger.info(f"Starting vault curation: {input_path} -> {output_path}")
         
         try:
-            # Step 1: Discover notes
+            # Step 1: Discover notes (lightweight - just file paths)
             logger.info("Step 1: Discovering notes...")
-            notes = self._discover_notes(input_path)
+            all_note_paths = self._discover_note_paths(input_path)
             
-            if not notes:
+            if not all_note_paths:
                 logger.warning("No notes found in input vault")
                 return CurationStats(
                     total_notes=0,
@@ -80,12 +80,31 @@ class ObsidianCurator:
                     quality_distribution={}
                 )
             
-            logger.info(f"Found {len(notes)} notes to process")
+            logger.info(f"Found {len(all_note_paths)} note files in {input_path}")
             
-            # Apply sample size if specified
-            if self.config.sample_size and len(notes) > self.config.sample_size:
-                notes = random.sample(notes, self.config.sample_size)
-                logger.info(f"Using random sample of {len(notes)} notes")
+            # Apply sample size IMMEDIATELY after discovery (before any processing)
+            if self.config.sample_size and len(all_note_paths) > self.config.sample_size:
+                selected_paths = random.sample(all_note_paths, self.config.sample_size)
+                logger.info(f"Using random sample of {len(selected_paths)} notes from {len(all_note_paths)} available")
+                
+                # Log which files were selected for processing
+                selected_files = [path.name for path in selected_paths]
+                logger.info(f"Selected files for processing: {selected_files}")
+            else:
+                selected_paths = all_note_paths
+                logger.info(f"Processing all {len(selected_paths)} notes")
+            
+            # Step 1.5: Process only the selected notes
+            logger.info("Step 1.5: Processing selected notes...")
+            notes = self._process_selected_notes(selected_paths)
+            
+            # Log content type distribution for analysis
+            content_types = {}
+            for note in notes:
+                content_type = note.content_type.value
+                content_types[content_type] = content_types.get(content_type, 0) + 1
+            
+            logger.info(f"Content type distribution: {content_types}")
             
             # Step 2: Process content
             logger.info("Step 2: Processing content...")
@@ -111,6 +130,64 @@ class ObsidianCurator:
             logger.error(f"Vault curation failed: {e}")
             raise
     
+    def _discover_note_paths(self, vault_path: Path) -> List[Path]:
+        """Discover markdown files in the vault (lightweight - just paths).
+        
+        Args:
+            vault_path: Path to the vault to search
+            
+        Returns:
+            List of Path objects for markdown files
+        """
+        try:
+            valid_files = discover_markdown_files(vault_path)
+            logger.info(f"Found {len(valid_files)} valid markdown files")
+            
+            # Sort by modification time (newest first) for better sampling
+            valid_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+            
+            return valid_files
+            
+        except Exception as e:
+            logger.error(f"Failed to discover notes in {vault_path}: {e}")
+            return []
+
+    def _process_selected_notes(self, file_paths: List[Path]) -> List[Note]:
+        """Process only the selected note files.
+        
+        Args:
+            file_paths: List of file paths to process
+            
+        Returns:
+            List of processed Note objects
+        """
+        processor = ContentProcessor(
+            clean_html=self.config.clean_html,
+            preserve_metadata=self.config.preserve_metadata,
+            intelligent_extraction=True,
+            ai_model=self.config.ai_model
+        )
+        
+        notes = []
+        total_files = len(file_paths)
+        
+        with tqdm(file_paths, desc="Loading notes", unit="files") as pbar:
+            for i, file_path in enumerate(pbar):
+                pbar.set_postfix(loaded=len(notes))
+                try:
+                    note = processor.process_note(file_path)
+                    notes.append(note)
+                    
+                    # Log progress
+                    logger.info(f"Processed note {i+1}/{total_files}: {note.title[:50]}...")
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to process {file_path}: {e}")
+                    continue
+        
+        logger.info(f"Successfully processed {len(notes)} notes")
+        return notes
+
     def _discover_notes(self, input_path: Path) -> List[Note]:
         """Discover and load notes from the input vault.
         
@@ -182,7 +259,8 @@ class ObsidianCurator:
                     quality_scores, themes, content_structure, curation_reason = self.ai_analyzer.analyze_note(note)
                     
                     # Determine if note should be curated
-                    is_curated = self._should_curate(quality_scores, themes)
+                    content_length = len(note.content) if note.content else 0
+                    is_curated = self._should_curate(quality_scores, themes, content_length)
                     
                     # Create curation result with enhanced metrics
                     result = CurationResult(
@@ -235,37 +313,95 @@ class ObsidianCurator:
                     continue
         
         curated_count = sum(1 for r in curation_results if r.is_curated)
-        logger.info(f"Analyzed {len(curation_results)} notes: {curated_count} curated, {len(curation_results) - curated_count} rejected")
+        rejected_count = len(curation_results) - curated_count
+        logger.info(f"Analyzed {len(curation_results)} notes: {curated_count} curated, {rejected_count} rejected")
+        
+        # Log detailed curation decisions for analysis
+        for result in curation_results:
+            status = "CURATED" if result.is_curated else "REJECTED"
+            quality = result.quality_scores.overall
+            relevance = result.quality_scores.relevance
+            logger.info(f"{status}: '{result.note.title[:50]}...' (Q:{quality:.2f}, R:{relevance:.2f}) - {result.curation_reason}")
         
         return curation_results
     
-    def _should_curate(self, quality_scores, themes) -> bool:
+    def _should_curate(self, quality_scores, themes, content_length: int = 0) -> bool:
         """Determine if a note should be curated based on scores and themes.
         
         Args:
             quality_scores: Quality assessment scores
             themes: Identified themes
+            content_length: Length of cleaned content in characters
             
         Returns:
             True if note should be curated
         """
-        # Check quality and relevance thresholds
-        if (quality_scores.overall >= self.config.quality_threshold and 
-            quality_scores.relevance >= self.config.relevance_threshold):
-            
-            # If target themes specified, check theme alignment
-            if self.config.target_themes:
-                theme_names = [theme.name.lower() for theme in themes]
-                theme_alignment = any(
-                    target.lower() in theme_name or theme_name in target.lower()
-                    for target in self.config.target_themes
-                    for theme_name in theme_names
-                )
-                return theme_alignment
-            
-            return True
+        # Enhanced quality thresholds for analytical content
+        meets_quality = quality_scores.overall >= self.config.quality_threshold
+        meets_relevance = quality_scores.relevance >= self.config.relevance_threshold
+        meets_analytical_depth = quality_scores.analytical_depth >= getattr(self.config, 'analytical_depth_threshold', 0.65)
         
-        return False
+        # Check minimum content length for usefulness
+        meets_length_requirement = content_length >= getattr(self.config, 'min_content_length', 500)
+        
+        # Professional writing quality assessment (higher standards)
+        professional_writing_score = (
+            quality_scores.analytical_depth + 
+            quality_scores.evidence_quality + 
+            quality_scores.critical_thinking + 
+            quality_scores.argument_structure + 
+            quality_scores.practical_value
+        ) / 5
+        
+        meets_professional_standard = professional_writing_score >= 0.7
+        
+        # Bonus for truly analytical content (synthesis, critical thinking)
+        has_analytical_bonus = (
+            quality_scores.critical_thinking >= 0.7 and 
+            quality_scores.analytical_depth >= 0.7
+        )
+        
+        # Check if themes are relevant and strategic
+        relevant_themes = []
+        strategic_themes = []
+        
+        if self.config.target_themes:
+            # If target themes specified, check relevance
+            for theme in themes:
+                for target in self.config.target_themes:
+                    if target.lower() in theme.name.lower():
+                        relevant_themes.append(theme)
+                        # Prioritize strategic and thought-leader content
+                        if theme.expertise_level in ['expert', 'thought_leader'] and theme.content_category == 'strategic':
+                            strategic_themes.append(theme)
+                        break
+            has_relevant_themes = len(relevant_themes) > 0
+            has_strategic_themes = len(strategic_themes) > 0
+        else:
+            # If no target themes, all themes are considered relevant
+            has_relevant_themes = True
+            relevant_themes = themes
+            # Count strategic themes anyway
+            strategic_themes = [t for t in themes if t.content_category == 'strategic' and t.expertise_level in ['expert', 'thought_leader']]
+            has_strategic_themes = len(strategic_themes) > 0
+        
+        # Enhanced curation decision with analytical focus and length requirement
+        should_curate = (
+            meets_quality and 
+            meets_relevance and 
+            meets_length_requirement and
+            has_relevant_themes and
+            (
+                # Path 1: High analytical content with professional standards
+                (meets_analytical_depth and meets_professional_standard) or
+                # Path 2: Exceptional overall quality (compensates for lower analytical depth)
+                (quality_scores.overall >= 0.85 and has_analytical_bonus) or
+                # Path 3: Strategic themes with good analytical content
+                (has_strategic_themes and meets_analytical_depth and quality_scores.overall >= 0.7)
+            )
+        )
+        
+        return should_curate
     
     def _create_curated_vault(self, curation_results: List[CurationResult], 
                              output_path: Path) -> CurationStats:

@@ -1,14 +1,24 @@
 # Obsidian Curator Configuration
 # This file contains the default configuration for the curation process
 
-# AI Model Configuration
-ai_model: "gpt-oss:20b"  # Ollama model to use for analysis
+# AI Model Configuration - Multi-Model Architecture for Performance
+ai_model: "gpt-oss:20b"  # Default/fallback model for complex tasks
 reasoning_level: "low"   # AI reasoning level: low, medium, high
 max_tokens: 2000         # Maximum tokens for AI analysis
 
-# Quality Thresholds (0.0 - 1.0)
-quality_threshold: 0.7   # Minimum overall quality score for curation
-relevance_threshold: 0.6 # Minimum relevance score for curation
+# Task-Specific Models (optimized for speed and accuracy)
+models:
+  content_curation: "phi3:mini"     # 2.2GB - Fast binary decisions for content filtering
+  quality_analysis: "llama3.1:8b"  # 4.9GB - Balanced speed/accuracy for quality scoring
+  theme_classification: "llama3.1:8b"  # 4.9GB - Pattern recognition and categorization
+  structure_analysis: "phi3:mini"   # 2.2GB - Boolean flags and simple scoring
+  fallback: "gpt-oss:20b"          # 13GB - Complex edge cases only
+
+# Quality Thresholds (0.0 - 1.0) - Enhanced for analytical content
+quality_threshold: 0.75  # Minimum overall quality score for curation (raised for sophistication)
+relevance_threshold: 0.65 # Minimum relevance score for curation (raised for precision)
+analytical_depth_threshold: 0.65  # Minimum analytical depth for publication-ready content
+min_content_length: 500   # Minimum content length (characters) for useful notes
 
 # Target Themes (leave empty for all themes)
 target_themes:
@@ -26,3 +36,7 @@ theme_similarity_threshold: 0.3 # Similarity threshold for fuzzy theme matching
 
 # Sample Size (for testing - leave null for all notes)
 sample_size: null       # Number of notes to process (random sample)
+
+# Default Paths (for reference)
+# Raw notes for curation: /Users/jose/Documents/Obsidian/Evermd
+# Published articles (target quality): my-writings/

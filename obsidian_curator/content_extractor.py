@@ -313,6 +313,44 @@ class ContentExtractor:
         logger.info(f"Enhanced content: {len(original_content)} → {len(enhanced_content)} characters")
         return enhanced_content
     
+    def _intelligent_content_filter(self, extracted_content: Dict[str, str]) -> Dict[str, str]:
+        """Pre-filter extracted content using heuristics before AI curation.
+        
+        Args:
+            extracted_content: Dictionary of source -> extracted content
+            
+        Returns:
+            Dictionary of filtered content that's worth sending to AI
+        """
+        filtered_content = {}
+        
+        for source, content in extracted_content.items():
+            # Skip if content is too short or empty
+            if not content or len(content.strip()) < 50:
+                continue
+            
+            # Skip if content appears to be metadata/headers only
+            lines = content.strip().split('\n')
+            substantive_lines = [line for line in lines if len(line.strip()) > 20]
+            if len(substantive_lines) < 2:
+                continue
+                
+            # Skip if content is mostly repetitive
+            unique_words = set(content.lower().split())
+            if len(unique_words) < 10:
+                continue
+                
+            # Skip if content appears to be navigation/UI elements
+            ui_indicators = ['home', 'menu', 'navigation', 'contact us', 'about us', 'privacy policy', 'terms of service']
+            if any(indicator in content.lower() for indicator in ui_indicators) and len(content) < 200:
+                continue
+                
+            # Content passes basic filters
+            filtered_content[source] = content
+            
+        logger.info(f"Content filter: {len(extracted_content)} → {len(filtered_content)} sources after filtering")
+        return filtered_content
+    
     def _curate_extracted_content(self, original_content: str, extracted_content: Dict[str, str]) -> Dict[str, str]:
         """Use AI to curate and filter extracted content for relevance and value.
         
@@ -325,10 +363,17 @@ class ContentExtractor:
         """
         if not self.ollama_client or not extracted_content:
             return {}
+        
+        # Pre-filter content using heuristics to reduce AI calls
+        filtered_content = self._intelligent_content_filter(extracted_content)
+        
+        if not filtered_content:
+            logger.info("No content passed pre-filtering, skipping AI curation")
+            return {}
             
         curated_extracts = {}
         
-        for source, raw_content in extracted_content.items():
+        for source, raw_content in filtered_content.items():
             try:
                 # Determine content type for better prompting
                 is_pdf = source.startswith("PDF:")
@@ -337,61 +382,41 @@ class ContentExtractor:
                 
                 # Create tailored prompt based on content type
                 if is_pdf:
-                    curation_prompt = f"""You are helping curate PDF document content for infrastructure professionals. 
+                    curation_prompt = f"""TASK: Evaluate PDF content for infrastructure note.
 
-ORIGINAL NOTE CONTENT:
-{original_content[:1000]}...
+CONTENT: {raw_content[:2000]}...
 
-EXTRACTED PDF CONTENT FROM {source}:
-{raw_content[:3000]}...
+Is this valuable for infrastructure professionals? Consider: technical reports, policy, engineering specs, market analysis, research.
 
-This PDF content is being evaluated for inclusion in a professional infrastructure note. Consider that infrastructure encompasses: transport, energy, water, digital, construction, engineering, sustainability, climate, governance, and related professional topics.
+REJECT if: personal info, unrelated to infrastructure, admin/metadata only.
 
-For PDFs, be INCLUSIVE and consider valuable:
-1. Technical reports, policy documents, industry analysis
-2. Infrastructure project information, case studies, best practices  
-3. Engineering specifications, standards, guidance documents
-4. Market analysis, financial models, regulatory information
-5. Research findings, innovation, technology developments
-6. Professional development content, training materials
-
-ONLY reject if the content is clearly:
-- Personal/private information with no professional relevance
-- Completely unrelated to infrastructure, engineering, or professional practice
-- Purely administrative (meeting minutes, contact lists, etc.)
-- Duplicate of information already in the original note
-
-If valuable, provide:
-- ALWAYS preserve the document link (if present)
-- A professional summary focusing on key insights (max 400 words)
-- Highlight main findings, recommendations, or actionable information
+RESPOND:
+- If valuable: Provide 2-3 sentence summary
+- If not valuable: "NOT_RELEVANT"
 
 Response:"""
                 else:
-                    curation_prompt = f"""You are helping curate extracted content for a professional note. 
+                    curation_prompt = f"""TASK: Check if content adds value to infrastructure note.
 
-ORIGINAL NOTE CONTENT:
-{original_content[:1000]}...
+ORIGINAL: {original_content[:500]}...
+EXTRACTED: {raw_content[:1500]}...
 
-EXTRACTED CONTENT FROM {source}:
-{raw_content[:2000]}...
+Does extracted content provide NEW valuable information for infrastructure professionals?
 
-Please analyze if this extracted content adds significant value to the original note. Consider:
-1. Does it provide new, relevant information not in the original?
-2. Is it professionally valuable for infrastructure/construction professionals?
-3. Does it contain actionable insights, data, or important context?
-4. Is the content substantive (not just metadata, headers, or formatting)?
-
-If valuable, provide a clean, concise summary of the key information (max 300 words).
-If not valuable, respond with "NOT_RELEVANT".
+RESPOND:
+- If valuable: Brief summary (max 200 words)
+- If not valuable: "NOT_RELEVANT"
 
 Response:"""
 
-                # Adjust token limit based on content type
-                max_tokens = 800 if is_pdf else 500
+                # Adjust token limit for fast phi3:mini model  
+                max_tokens = 300 if is_pdf else 200
+                
+                # Use fast content curation model for binary decisions
+                curation_model = "phi3:mini"  # Fast model for simple filtering decisions
                 
                 response = self.ollama_client.generate(
-                    model=self.ai_model,
+                    model=curation_model,
                     prompt=curation_prompt,
                     options={"temperature": 0.1, "num_predict": max_tokens, "stop": []}
                 )
