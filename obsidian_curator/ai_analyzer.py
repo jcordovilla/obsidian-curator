@@ -757,7 +757,7 @@ Only provide the JSON response, no other text.
         
         # Check professional writing quality (NEW - targeting 9/10 readiness)
         professional_score = quality_scores.professional_writing_score
-        professional_threshold = 0.7  # 70% threshold for professional quality
+        professional_threshold = getattr(self.config, 'professional_writing_threshold', 0.65)  # Configurable threshold for professional quality
         professional_passed = professional_score >= professional_threshold
         
         # Enhanced decision logic

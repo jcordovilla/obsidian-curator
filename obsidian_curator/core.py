@@ -353,7 +353,7 @@ class ObsidianCurator:
             quality_scores.practical_value
         ) / 5
         
-        meets_professional_standard = professional_writing_score >= 0.7
+        meets_professional_standard = professional_writing_score >= getattr(self.config, 'professional_writing_threshold', 0.65)
         
         # Bonus for truly analytical content (synthesis, critical thinking)
         has_analytical_bonus = (

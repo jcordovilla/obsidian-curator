@@ -225,10 +225,11 @@ class CurationConfig(BaseModel):
         if v.lower() not in allowed_levels:
             raise ValueError(f"Reasoning level must be one of: {', '.join(allowed_levels)}")
         return v.lower()
-    quality_threshold: float = Field(default=0.75, ge=0.0, le=1.0, description="Minimum quality score for curation")
+    quality_threshold: float = Field(default=0.65, ge=0.0, le=1.0, description="Minimum quality score for curation")
     relevance_threshold: float = Field(default=0.65, ge=0.0, le=1.0, description="Minimum relevance score for curation")
     analytical_depth_threshold: float = Field(default=0.65, ge=0.0, le=1.0, description="Minimum analytical depth for publication-ready content")
-    min_content_length: int = Field(default=500, ge=100, description="Minimum content length (characters) for useful notes")
+    professional_writing_threshold: float = Field(default=0.65, ge=0.0, le=1.0, description="Minimum professional writing score for curation")
+    min_content_length: int = Field(default=300, ge=50, description="Minimum content length (characters) for useful notes")
     max_tokens: int = Field(default=2000, gt=0, description="Maximum tokens for AI analysis")
     target_themes: List[str] = Field(default_factory=list, description="Target themes to focus on")
     sample_size: Optional[int] = Field(default=None, gt=0, description="Number of notes to process (random sample for testing)")
