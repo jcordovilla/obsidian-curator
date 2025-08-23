@@ -1,22 +1,44 @@
 # Obsidian Curator
 
-An AI-powered curation system for Obsidian vaults that automatically analyzes, categorizes, and organizes your notes using local AI models via Ollama.
+An AI-powered curation system for Obsidian vaults that automatically analyzes, categorizes, and organizes your notes using local AI models via Ollama. **Now with enhanced performance and optimized curation thresholds for better content capture.**
+
+## 🚀 Recent Updates (Latest Release)
+
+### **Performance Optimizations** ✨
+- **Lowered Quality Threshold**: From 0.75 to 0.65 for broader content capture
+- **Reduced Professional Writing Threshold**: From 0.70 to 0.65 for better analytical content inclusion
+- **Optimized Content Length**: Minimum length reduced from 500 to 300 characters to capture valuable short notes
+- **Enhanced AI Analysis**: Multi-model architecture with specialized models for different tasks
+
+### **New Features** 🆕
+- **Professional Writing Assessment**: Advanced evaluation of analytical depth and critical thinking
+- **Enhanced Theme Classification**: Improved tagging system aligned with writing purposes
+- **Comprehensive Performance Metrics**: Detailed timing analysis and throughput optimization
+- **Advanced Content Processing**: Better handling of web clippings, PDF annotations, and mixed content
+
+### **Documentation & Analysis** 📊
+- **Performance Analysis Reports**: Detailed system evaluation and optimization insights
+- **Thematic Classification Analysis**: Writing purpose alignment and enhancement recommendations
+- **Curation Quality Diagnosis**: Comprehensive analysis of accepted vs. rejected content
+- **Optimization Implementation Guide**: Step-by-step improvement documentation
 
 ## Features
 
 - **AI-Powered Analysis**: Uses Ollama with local AI models to analyze note quality and relevance
-- **Intelligent Curation**: Automatically determines which notes meet your curation criteria
+- **Intelligent Curation**: Automatically determines which notes meet your curation criteria with **optimized thresholds**
 - **Theme Classification**: Organizes notes into hierarchical themes (infrastructure, construction, economics, etc.)
 - **Content Processing**: Cleans and processes various content types including web clippings and markdown
 - **Vault Organization**: Creates a well-structured curated vault with metadata and statistics
 - **Flexible Configuration**: Customizable quality thresholds, target themes, and processing options
+- **Professional Writing Assessment**: Advanced evaluation of analytical depth and publication readiness
+- **Performance Optimization**: Multi-model AI architecture for efficient processing
 
 ## Installation
 
 ### Prerequisites
 
 1. **Python 3.12+** with Poetry
-2. **Ollama** installed and running with at least one model (e.g., `gpt-oss:20b`)
+2. **Ollama** installed and running with multiple models for optimal performance
 
 ### Install Ollama
 
@@ -41,9 +63,16 @@ curl -sSL https://install.python-poetry.org | python3 -
 poetry install
 ```
 
-### Pull an AI Model
+### Pull AI Models for Optimal Performance
 
 ```bash
+# Core model for content curation
+ollama pull phi3:mini
+
+# High-quality model for detailed analysis
+ollama pull llama3.1:8b
+
+# Premium model for complex reasoning
 ollama pull gpt-oss:20b
 ```
 
@@ -52,7 +81,8 @@ ollama pull gpt-oss:20b
 ### Prerequisites
 
 1. **Python 3.12+** with Poetry
-2. **Ollama** installed and running with at least one model (e.g., `gpt-oss:20b`)
+2. **Ollama** installed and running with multiple models
+3. **PyYAML** dependency for configuration validation
 
 ### Installation
 
@@ -83,10 +113,10 @@ poetry run obsidian-curator --help
 The system processes raw notes from your Obsidian vault and outputs curated, cleaned content. The `my-writings/` folder contains examples of your final published work to demonstrate the target quality and style.
 
 ```bash
-# Test with a small sample first
+# Test with a small sample first (recommended for new users)
 poetry run obsidian-curator curate --sample-size 5 /Users/jose/Documents/Obsidian/Evermd test-curated-vault
 
-# Full curation of your vault
+# Full curation of your vault with optimized thresholds
 poetry run obsidian-curator curate /Users/jose/Documents/Obsidian/Evermd curated-vault
 ```
 
@@ -110,10 +140,11 @@ poetry run python -m obsidian_curator.gui
 - **Theme Analysis**: View theme distribution as notes are processed
 - **Note Preview**: Browse curated notes with quality scores and content preview
 - **Professional Quality Metrics**: Track analytical depth, evidence quality, and writing readiness
+- **Performance Monitoring**: Real-time processing speed and throughput metrics
 
 **Default Settings:**
 - Source vault: `/Users/jose/Documents/Obsidian/Evermd`
-- Uses configuration from `config.yaml`
+- Uses configuration from `config.yaml` with **optimized thresholds**
 - Test run default: 10 notes sample
 
 ### Command Line Interface
@@ -121,7 +152,7 @@ poetry run python -m obsidian_curator.gui
 The easiest way to use Obsidian Curator is through the command line:
 
 ```bash
-# Basic curation with default settings
+# Basic curation with optimized default settings
 poetry run obsidian-curator curate /path/to/input/vault /path/to/output/vault
 
 # Custom quality threshold and reasoning level
@@ -146,11 +177,13 @@ poetry run obsidian-curator curate --dry-run /path/to/input/vault /path/to/outpu
 from pathlib import Path
 from obsidian_curator import ObsidianCurator, CurationConfig
 
-# Configuration
+# Configuration with optimized thresholds
 config = CurationConfig(
     ai_model="gpt-oss:20b",
-    quality_threshold=0.7,
-    relevance_threshold=0.6,
+    quality_threshold=0.65,  # Optimized for better content capture
+    relevance_threshold=0.65,  # Maintained for precision
+    professional_writing_threshold=0.65,  # Lowered for analytical content
+    min_content_length=300,  # Reduced to capture valuable short notes
     target_themes=["infrastructure", "construction", "economics"]
 )
 
@@ -172,12 +205,27 @@ print(f"Curated {stats.curated_notes}/{stats.total_notes} notes")
 
 - **`ai_model`**: Ollama model to use (default: `"gpt-oss:20b"`)
 - **`reasoning_level`**: AI reasoning level - `"low"`, `"medium"`, or `"high"` (default: `"low"`)
-- **`quality_threshold`**: Minimum quality score for curation (0.0-1.0, default: 0.7)
-- **`relevance_threshold`**: Minimum relevance score for curation (0.0-1.0, default: 0.6)
+- **`quality_threshold`**: Minimum quality score for curation (0.0-1.0, **default: 0.65** - optimized)
+- **`relevance_threshold`**: Minimum relevance score for curation (0.0-1.0, **default: 0.65** - maintained)
+- **`professional_writing_threshold`**: Minimum professional writing score for curation (0.0-1.0, **default: 0.65** - optimized)
+- **`min_content_length`**: Minimum content length in characters (**default: 300** - reduced for valuable short notes)
 - **`max_tokens`**: Maximum tokens for AI analysis (default: 2000)
 - **`target_themes`**: List of target themes to focus on (default: infrastructure themes)
 - **`preserve_metadata`**: Whether to preserve original note metadata (default: True)
 - **`clean_html`**: Whether to clean HTML content (default: True)
+
+### **Optimized Default Thresholds** 🎯
+
+The system now uses **optimized thresholds** for better content capture:
+
+```yaml
+# Quality Thresholds (0.0 - 1.0) - Optimized for better content capture
+quality_threshold: 0.65  # Minimum overall quality score for curation (lowered for broader capture)
+relevance_threshold: 0.65 # Minimum relevance score for curation (maintained for precision)
+analytical_depth_threshold: 0.65  # Minimum analytical depth for publication-ready content
+professional_writing_threshold: 0.65  # Minimum professional writing score for curation (lowered from 0.70)
+min_content_length: 300   # Minimum content length (characters) for useful notes (lowered for valuable short notes)
+```
 
 ### Default Theme Hierarchy
 
@@ -219,27 +267,32 @@ The system comes with a predefined theme hierarchy focused on infrastructure and
 - Determines content type (web clipping, personal note, etc.)
 - Cleans HTML content if needed
 - Preserves important metadata
+- **Enhanced processing for mixed content types**
 
 ### 3. AI Analysis
-- Uses Ollama to analyze note quality across multiple dimensions:
-  - Overall quality
-  - Relevance to target themes
-  - Completeness of ideas
-  - Credibility of source
-  - Clarity of expression
+- Uses **multi-model Ollama architecture** for specialized tasks:
+  - **Content Curation**: `phi3:mini` for efficient initial screening
+  - **Quality Analysis**: `llama3.1:8b` for detailed assessment
+  - **Theme Classification**: `gpt-oss:20b` for complex reasoning
+- Analyzes note quality across **10 dimensions** including:
+  - Overall quality, relevance, completeness, credibility, clarity
+  - **Professional writing quality** and analytical depth
+  - Critical thinking and evidence quality
 - Identifies themes and assigns confidence scores
-- Determines curation decision based on thresholds
+- Determines curation decision based on **optimized thresholds**
 
 ### 4. Theme Classification
 - Maps identified themes to the predefined hierarchy
 - Uses fuzzy matching for theme names
 - Creates nested folder structures for subthemes
+- **Enhanced tagging system aligned with writing purposes**
 
 ### 5. Vault Organization
 - Creates organized folder structure by themes
 - Saves curated notes with enhanced metadata
 - Generates comprehensive reports and statistics
 - Preserves curation history and reasoning
+- **Performance metrics and optimization insights**
 
 ## Output Structure
 
@@ -262,7 +315,8 @@ curated-vault/
     ├── curation-log.md
     ├── theme-analysis.md
     ├── configuration.json
-    └── statistics.json
+    ├── statistics.json
+    └── performance-metrics.md
 ```
 
 ## Examples
@@ -272,6 +326,25 @@ See the `examples/` directory for complete working examples:
 - **`basic_curation.py`**: Simple example of basic vault curation
 - **`advanced_curation.py`**: Advanced usage with custom configuration and detailed analysis
 
+## Performance & Optimization
+
+### **Recent Performance Improvements** 📈
+
+- **AI Analysis Optimization**: Multi-model architecture for specialized tasks
+- **Threshold Optimization**: Better content capture with maintained quality
+- **Content Length Flexibility**: Captures valuable short notes (300+ characters)
+- **Professional Writing Assessment**: Advanced evaluation of analytical content
+- **Enhanced Processing**: Better handling of mixed content types
+
+### **Performance Metrics**
+
+The system now provides detailed performance analysis:
+- Processing time per note
+- AI analysis efficiency
+- Curation rate optimization
+- Throughput improvements
+- Quality distribution analysis
+
 ## Troubleshooting
 
 ### Common Issues
@@ -279,13 +352,14 @@ See the `examples/` directory for complete working examples:
 1. **Ollama Connection Error**
    - Ensure Ollama is running: `ollama serve`
    - Check if the specified model is available: `ollama list`
+   - **Verify PyYAML dependency**: `poetry install`
 
 2. **No Notes Found**
    - Verify the input path contains markdown files
    - Check if notes are in subdirectories
 
 3. **Low Curation Rate**
-   - Lower quality or relevance thresholds
+   - **Use optimized thresholds** (quality: 0.65, professional writing: 0.65)
    - Check if target themes match your content
    - Review AI model performance
 
@@ -329,12 +403,13 @@ poetry update
 ```
 obsidian_curator/
 ├── __init__.py          # Package initialization
-├── core.py              # Main orchestration logic
-├── models.py            # Data models and schemas
+├── core.py              # Main orchestration logic with optimized thresholds
+├── models.py            # Data models and schemas with enhanced configuration
 ├── content_processor.py # Content processing and cleaning
-├── ai_analyzer.py       # AI-powered analysis using Ollama
+├── ai_analyzer.py       # AI-powered analysis using multi-model Ollama
 ├── theme_classifier.py  # Theme classification and organization
 ├── vault_organizer.py   # Vault organization and file management
+├── clutter_patterns.txt # Enhanced content cleaning patterns
 └── cli.py               # Command-line interface
 ```
 
@@ -356,6 +431,18 @@ poetry run python test_basic_functionality.py
 4. Add tests if applicable
 5. Submit a pull request
 
+## Documentation
+
+Comprehensive documentation is available in the `docs/` folder:
+
+- **`APP_SUMMARY.md`**: High-level overview and problem-solving approach
+- **`FUNCTIONALITY_GUIDE.md`**: Detailed technical architecture and component descriptions
+- **`PERFORMANCE_ANALYSIS_REPORT.md`**: System performance evaluation and optimization insights
+- **`CURATION_DETAILED_ANALYSIS.md`**: Comprehensive analysis of curation decisions
+- **`THEMATIC_CLASSIFICATION_ANALYSIS.md`**: Writing purpose alignment and enhancement recommendations
+- **`OPTIMIZATION_IMPLEMENTATION_SUMMARY.md`**: Step-by-step improvement documentation
+- **`SETUP_GUIDE.md`**: Detailed installation and configuration instructions
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
@@ -365,3 +452,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Built with [Ollama](https://ollama.ai) for local AI inference
 - Uses [Pydantic](https://pydantic.dev) for data validation
 - Powered by [Loguru](https://loguru.readthedocs.io) for logging
+- Enhanced with [PyYAML](https://pyyaml.org/) for configuration management

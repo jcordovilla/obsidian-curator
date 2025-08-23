@@ -7,7 +7,8 @@
 Before starting, ensure you have:
 - **Python 3.12+** installed
 - **Poetry** for dependency management
-- **Ollama** installed and running
+- **Ollama** installed and running with **multiple AI models for optimal performance**
+- **PyYAML** dependency for configuration validation
 - Access to your Obsidian vault with notes to curate
 
 ### 2. Install Ollama
@@ -23,13 +24,20 @@ curl -fsSL https://ollama.ai/install.sh | sh
 # Download from https://ollama.ai/download
 ```
 
-### 3. Pull an AI Model
+### 3. Pull AI Models for Optimal Performance
 
 ```bash
 # Start Ollama service
 ollama serve
 
-# In a new terminal, pull the recommended model
+# In a new terminal, pull the recommended models for multi-model architecture
+# Core model for content curation
+ollama pull phi3:mini
+
+# High-quality model for detailed analysis
+ollama pull llama3.1:8b
+
+# Premium model for complex reasoning
 ollama pull gpt-oss:20b
 
 # Verify installation
@@ -46,7 +54,7 @@ cd obsidian-curator
 # Install Poetry if needed
 curl -sSL https://install.python-poetry.org | python3 -
 
-# Install dependencies
+# Install dependencies (including PyYAML)
 poetry install
 
 # Verify installation
@@ -58,7 +66,7 @@ poetry run obsidian-curator --help
 ### Test with Sample Data
 
 ```bash
-# Test the system with your writings folder first
+# Test the system with your writings folder first (recommended for new users)
 poetry run obsidian-curator curate --sample-size 5 my-writings test-output
 
 # Check the results
@@ -69,7 +77,7 @@ cat test-output/metadata/curation-log.md
 ### Full Vault Curation
 
 ```bash
-# Process your full vault (replace paths with your actual vault location)
+# Process your full vault with optimized thresholds (replace paths with your actual vault location)
 poetry run obsidian-curator curate /Users/jose/Documents/Obsidian/Evermd curated-vault
 
 # Monitor progress and results
@@ -78,18 +86,21 @@ tail -f curated-vault/metadata/curation-log.md
 
 ## Configuration
 
-### Basic Configuration
+### **Optimized Default Configuration** 🎯
 
-Create a `config.yaml` file:
+The system now uses **optimized thresholds** for better content capture. Create a `config.yaml` file:
 
 ```yaml
-# AI Configuration
-ai_model: "gpt-oss:20b"
+# AI Configuration - Multi-Model Architecture
+ai_model: "gpt-oss:20b"  # Primary model for complex reasoning
 max_tokens: 2000
 
-# Quality Thresholds
-quality_threshold: 0.7
-relevance_threshold: 0.6
+# Quality Thresholds - Optimized for Better Content Capture
+quality_threshold: 0.65  # Lowered from 0.75 for broader capture
+relevance_threshold: 0.65 # Maintained for precision
+analytical_depth_threshold: 0.65  # For publication-ready content
+professional_writing_threshold: 0.65  # Lowered from 0.70 for analytical content
+min_content_length: 300   # Reduced from 500 for valuable short notes
 
 # Target Themes
 target_themes:
@@ -100,231 +111,240 @@ target_themes:
 # Processing Options
 preserve_metadata: true
 clean_html: true
-sample_size: null  # Process all notes
 ```
 
-### Advanced Configuration
+### **Performance-Optimized Configuration**
+
+For **maximum content capture** with maintained quality:
 
 ```yaml
-# Higher quality standards
-quality_threshold: 0.8
-relevance_threshold: 0.7
-max_tokens: 3000
+# Optimized for broader content inclusion
+quality_threshold: 0.65
+professional_writing_threshold: 0.65
+min_content_length: 300
+relevance_threshold: 0.65
+```
 
-# Specific theme focus
-target_themes:
-  - infrastructure
-  - ppps
-  - resilience
-  - sustainability
+For **high-quality curation** (more selective):
 
-# Processing tweaks
-preserve_metadata: true
-clean_html: true
-remove_duplicates: true
+```yaml
+# More selective curation
+quality_threshold: 0.75
+professional_writing_threshold: 0.70
+min_content_length: 500
+relevance_threshold: 0.70
+```
 
-# Large vault handling
-sample_size: 100  # Process in smaller batches
+For **balanced approach**:
+
+```yaml
+# Balanced curation
+quality_threshold: 0.70
+professional_writing_threshold: 0.68
+min_content_length: 400
+relevance_threshold: 0.68
+```
+
+## Multi-Model AI Architecture
+
+### **Model Specialization**
+
+The system now uses **multiple AI models** for specialized tasks:
+
+- **`phi3:mini`**: Efficient content curation and initial screening
+- **`llama3.1:8b`**: Detailed quality analysis and assessment
+- **`gpt-oss:20b`**: Complex reasoning and theme classification
+
+### **Performance Benefits**
+
+- **Efficient Processing**: Smaller models for simple tasks, larger for complex ones
+- **Specialized Analysis**: Each model optimized for specific functions
+- **Fallback Handling**: Graceful degradation when models are unavailable
+- **Resource Optimization**: Better memory and processing efficiency
+
+## Advanced Configuration
+
+### **Enhanced Processing Options**
+
+```yaml
+# Advanced Processing Configuration
+processing:
+  batch_size: 10                    # Notes processed per batch
+  max_concurrent_ai: 3             # Maximum concurrent AI analysis
+  preserve_metadata: true           # Keep original note metadata
+  clean_html: true                  # Remove web clutter
+  enhanced_content_processing: true # Advanced content type handling
+
+# Performance Monitoring
+performance:
+  enable_metrics: true              # Track processing performance
+  log_timing: true                  # Detailed timing analysis
+  throughput_analysis: true         # Notes processed per minute
+```
+
+### **Theme Customization**
+
+```yaml
+# Custom Theme Hierarchy
+custom_themes:
+  infrastructure:
+    - ppps: "Public-Private Partnerships"
+    - resilience: "Climate Adaptation & Disaster Recovery"
+    - financing: "Funding & Investment Analysis"
+    - governance: "Regulation & Policy"
+    - technology: "Innovation & Digital Transformation"
+  
+  construction:
+    - projects: "Project Management"
+    - best_practices: "Standards & Guidelines"
+    - materials: "Construction Materials"
+    - safety: "Risk Management & Safety"
+```
+
+## Performance Optimization
+
+### **Recommended Settings for Different Use Cases**
+
+#### **Large Vaults (1000+ notes)**
+```yaml
+# Optimize for processing speed
+batch_size: 20
+max_concurrent_ai: 5
+quality_threshold: 0.65  # Broader capture
+min_content_length: 300  # Include short notes
+```
+
+#### **High-Quality Curation**
+```yaml
+# Focus on quality over quantity
+quality_threshold: 0.75
+professional_writing_threshold: 0.70
+min_content_length: 500
+batch_size: 5  # Smaller batches for detailed analysis
+```
+
+#### **Testing and Development**
+```yaml
+# Quick testing configuration
+sample_size: 10
+quality_threshold: 0.60  # Very broad capture for testing
+verbose_logging: true
+performance_metrics: true
+```
+
+### **Performance Monitoring**
+
+Enable performance tracking to optimize your setup:
+
+```bash
+# Run with performance metrics
+poetry run obsidian-curator curate --performance-metrics /path/to/input /path/to/output
+
+# Check performance report
+cat curated-vault/metadata/performance-metrics.md
 ```
 
 ## Troubleshooting
 
-### Common Issues
+### **Common Setup Issues**
 
-#### 1. Ollama Connection Error
-```
-Error: Failed to connect to Ollama
+#### **1. PyYAML Dependency Error**
+```bash
+# If you get "ModuleNotFoundError: No module named 'yaml'"
+poetry add pyyaml
+poetry install
 ```
 
-**Solution:**
+#### **2. Ollama Connection Issues**
 ```bash
 # Check if Ollama is running
-ollama list
-
-# If not running, start it
 ollama serve
 
-# Verify the model is available
-ollama run gpt-oss:20b
+# Verify models are available
+ollama list
+
+# Test model response
+ollama run phi3:mini "Hello, world!"
 ```
 
-#### 2. No Notes Found
-```
-Warning: No notes found in input vault
-```
-
-**Solution:**
+#### **3. Configuration Validation**
 ```bash
-# Check vault path is correct
-ls -la /path/to/your/vault/
+# Validate your configuration
+poetry run obsidian-curator validate-config
 
-# Look for markdown files
-find /path/to/your/vault/ -name "*.md" | head -10
-
-# Check permissions
-ls -la /path/to/your/vault/
+# Check configuration syntax
+poetry run obsidian-curator curate --dry-run /path/to/input /path/to/output
 ```
 
-#### 3. Low Curation Rate
-```
-Results: 5/100 notes curated (5.0%)
-```
+### **Performance Issues**
 
-**Solution:**
+#### **Low Curation Rate**
+- **Use optimized thresholds**: quality: 0.65, professional writing: 0.65
+- Check theme alignment with your content
+- Verify AI model performance and availability
+
+#### **Slow Processing**
+- Monitor multi-model usage and resource allocation
+- Check batch processing configuration
+- Verify Ollama service status
+
+#### **Memory Issues**
+- Reduce batch size for large vaults
+- Use smaller models for initial testing
+- Monitor system resource usage
+
+## Testing and Validation
+
+### **Step-by-Step Testing Process**
+
+1. **Configuration Test**
 ```bash
-# Lower thresholds for more inclusive curation
-poetry run obsidian-curator curate --quality-threshold 0.5 --relevance-threshold 0.4 /path/to/vault /path/to/output
-
-# Check what themes are being identified
-poetry run obsidian-curator analyze /path/to/vault --verbose
+# Validate configuration
+poetry run obsidian-curator validate-config
 ```
 
-#### 4. Memory Issues
-```
-Error: Out of memory during processing
-```
-
-**Solution:**
+2. **Small Sample Test**
 ```bash
-# Use smaller sample size
-poetry run obsidian-curator curate --sample-size 50 /path/to/vault /path/to/output
-
-# Reduce token limit
-poetry run obsidian-curator curate --max-tokens 1000 /path/to/vault /path/to/output
+# Test with 5 notes
+poetry run obsidian-curator curate --sample-size 5 /path/to/vault test-output
 ```
 
-### Debug Mode
-
-Enable verbose logging to diagnose issues:
-
+3. **Performance Test**
 ```bash
-# Verbose output
-poetry run obsidian-curator curate --verbose /path/to/vault /path/to/output
-
-# Dry run to see what would happen
-poetry run obsidian-curator curate --dry-run /path/to/vault /path/to/output
+# Test with performance metrics
+poetry run obsidian-curator curate --performance-metrics --sample-size 20 /path/to/vault test-output
 ```
 
-## Optimization Tips
-
-### 1. Start Small
-- Begin with `--sample-size 10` to test configuration
-- Gradually increase sample size
-- Process full vault only after testing
-
-### 2. Adjust Thresholds
-- **High Standards**: quality=0.8, relevance=0.7
-- **Balanced**: quality=0.7, relevance=0.6 (default)
-- **Inclusive**: quality=0.5, relevance=0.4
-
-### 3. Theme Targeting
+4. **Full Run Test**
 ```bash
-# Focus on specific areas
-poetry run obsidian-curator curate --target-themes infrastructure,construction /path/to/vault /path/to/output
-
-# Process everything
-poetry run obsidian-curator curate /path/to/vault /path/to/output
+# Full vault curation
+poetry run obsidian-curator curate /path/to/vault curated-output
 ```
 
-### 4. Batch Processing
-For large vaults (1000+ notes):
+### **Validation Checklist**
 
-```python
-# Use programmatic API for batch processing
-from obsidian_curator import ObsidianCurator, CurationConfig
-
-config = CurationConfig(quality_threshold=0.7)
-curator = ObsidianCurator(config)
-
-# Process in batches
-stats = curator.batch_process_vault(input_path, output_path, batch_size=100)
-```
-
-## Understanding Results
-
-### Curation Log
-Check `curated-vault/metadata/curation-log.md` for:
-- Which notes were curated/rejected and why
-- Quality scores for each note
-- Processing errors or warnings
-
-### Theme Analysis
-Review `curated-vault/metadata/theme-analysis.md` for:
-- Distribution of themes in your content
-- Quality statistics by theme
-- Suggestions for improvement
-
-### Statistics
-Examine `curated-vault/metadata/statistics.json` for:
-- Processing metrics
-- Quality score distributions
-- Performance data
+- [ ] Configuration file loads without errors
+- [ ] AI models respond correctly
+- [ ] Sample curation produces expected results
+- [ ] Performance metrics are generated
+- [ ] Theme classification works correctly
+- [ ] Output structure is as expected
 
 ## Next Steps
 
-### 1. Review Results
-- Check the curated vault structure
-- Verify theme organization makes sense
-- Review quality of selected content
+After successful setup:
 
-### 2. Refine Configuration
-- Adjust thresholds based on results
-- Add or modify target themes
-- Tune processing options
+1. **Run a full curation** of your vault
+2. **Review the results** and adjust thresholds if needed
+3. **Monitor performance** and optimize configuration
+4. **Explore advanced features** like custom themes and processing options
+5. **Check the documentation** for additional configuration options
 
-### 3. Iterate
-- Process additional content
-- Update configuration based on learnings
-- Build comprehensive curated knowledge base
+## Support and Resources
 
-### 4. Integration
-- Import curated vault into Obsidian
-- Set up regular curation workflows
-- Share curated content with team
+- **Documentation**: Check the `docs/` folder for comprehensive guides
+- **Performance Reports**: Review generated performance metrics
+- **Configuration Examples**: See `config.yaml` for reference
+- **Troubleshooting**: Use verbose logging and performance metrics for debugging
 
-## Performance Expectations
-
-### Typical Processing Speeds
-- **Small vault** (50-100 notes): 1-2 minutes
-- **Medium vault** (500-1000 notes): 10-20 minutes  
-- **Large vault** (2000+ notes): 30-60 minutes
-
-### Expected Curation Rates
-- **High-quality vaults**: 60-80% curation rate
-- **Mixed content vaults**: 30-50% curation rate
-- **Research/clip vaults**: 20-40% curation rate
-
-### Resource Usage
-- **Memory**: 1-2GB for typical processing
-- **CPU**: Moderate usage during AI analysis
-- **Disk**: 2x input vault size for output and processing
-
-## Support
-
-### Getting Help
-1. Check this setup guide first
-2. Review the functionality guide for detailed explanations
-3. Run with `--verbose` for detailed logging
-4. Use `--dry-run` to preview without changes
-
-### Common Commands Reference
-```bash
-# Basic commands
-poetry run obsidian-curator curate INPUT OUTPUT
-poetry run obsidian-curator analyze VAULT_PATH
-poetry run obsidian-curator models
-
-# Testing commands  
-poetry run obsidian-curator curate --sample-size 5 INPUT OUTPUT
-poetry run obsidian-curator curate --dry-run INPUT OUTPUT
-
-# Configuration commands
-poetry run obsidian-curator curate --quality-threshold 0.8 INPUT OUTPUT
-poetry run obsidian-curator curate --target-themes infrastructure,construction INPUT OUTPUT
-
-# Debug commands
-poetry run obsidian-curator curate --verbose INPUT OUTPUT
-poetry run python test_basic_functionality.py
-```
-
-This setup guide should get you up and running with Obsidian Curator quickly and help resolve common issues.
+The enhanced Obsidian Curator now provides **significantly improved performance and content capture capabilities** through optimized thresholds, multi-model AI architecture, and enhanced processing options.
