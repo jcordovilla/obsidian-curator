@@ -281,11 +281,12 @@ class ObsidianCurator:
         logger.info(f"Processed {len(processed_notes)} notes")
         return processed_notes
     
-    def _analyze_notes(self, notes: List[Note]) -> List[CurationResult]:
+    def _analyze_notes(self, notes: List[Note], progress_callback=None) -> List[CurationResult]:
         """Analyze notes using AI for quality and theme assessment.
         
         Args:
             notes: List of notes to analyze
+            progress_callback: Optional callback function(progress, message) for progress updates
             
         Returns:
             List of curation results
@@ -319,7 +320,11 @@ class ObsidianCurator:
         logger.info(f"Temporary directory for saving: {temp_output_path}")
         
         with tqdm(notes, desc="AI analysis", unit="notes") as pbar:
-            for note in pbar:
+            for i, note in enumerate(pbar):
+                # Update progress if callback provided
+                if progress_callback:
+                    progress = 20 + int((i / len(notes)) * 60)  # 20% to 80%
+                    progress_callback(progress, f"Analyzing: {note.title[:30]}...")
                 try:
                     # Perform AI analysis with enhanced metrics
                     analysis_result = self.ai_analyzer.analyze_note(note)

@@ -91,9 +91,12 @@ class CurationWorker(QThread):
             # Step 4: AI analysis - this is the main time-consuming part
             self.progress_updated.emit(20, 100, "Starting AI analysis...")
             
-            # For now, we'll use the batch method but provide better progress indication
-            # The actual progress happens inside _analyze_notes with tqdm
-            curation_results = curator._analyze_notes(processed_notes)
+            # Create progress callback for real-time updates
+            def progress_callback(progress, message):
+                self.progress_updated.emit(progress, 100, message)
+            
+            # Use the enhanced analysis method with progress callback
+            curation_results = curator._analyze_notes(processed_notes, progress_callback)
             
             # Step 4.5: Deduplication
             self.progress_updated.emit(90, 100, "Performing deduplication...")
@@ -780,14 +783,16 @@ class ObsidianCuratorGUI(QMainWindow):
         percentage = current if current <= 100 else int((current / total * 100)) if total > 0 else 0
         self.progress_bar.setValue(percentage)
         
-        # Only show ETA for meaningful progress updates (not static step markers)
+        # Show ETA for real progress updates (not static step markers)
         eta_text = ""
-        if self.start_time and percentage > 0 and "Starting" not in current_note and "Performing" not in current_note:
-            elapsed = time.time() - self.start_time
-            if percentage > 5:  # Only estimate after some progress
-                estimated_total = elapsed * (100 / percentage)
-                remaining = estimated_total - elapsed
-                eta_text = f" - ETA: {int(remaining//60)}:{int(remaining%60):02d}"
+        if self.start_time and percentage > 0:
+            # Only show ETA for actual progress, not step markers
+            if "Analyzing:" in current_note or percentage > 25:
+                elapsed = time.time() - self.start_time
+                if percentage > 5:  # Only estimate after some progress
+                    estimated_total = elapsed * (100 / percentage)
+                    remaining = estimated_total - elapsed
+                    eta_text = f" - ETA: {int(remaining//60)}:{int(remaining%60):02d}"
         
         self.progress_label.setText(f"Progress: {percentage}%{eta_text}")
         self.current_operation_label.setText(current_note)
