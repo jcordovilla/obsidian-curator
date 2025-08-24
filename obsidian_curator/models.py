@@ -179,6 +179,9 @@ class CurationResult(BaseModel):
     is_curated: bool = Field(..., description="Whether note meets curation criteria")
     curation_reason: str = Field(..., description="Reason for curation decision")
     processing_notes: List[str] = Field(default_factory=list, description="Processing notes and warnings")
+    route_info: Optional[Dict[str, Any]] = Field(None, description="Model routing information")
+    needs_triage: bool = Field(default=False, description="Whether this result needs human triage")
+    triage_info: Optional[Dict[str, Any]] = Field(None, description="Triage information if applicable")
     
     @property
     def primary_theme(self) -> Optional[Theme]:
@@ -203,6 +206,42 @@ class CurationResult(BaseModel):
         }
 
 
+class RoutingStage(BaseModel):
+    """Configuration for a single routing stage."""
+    model: str = Field(..., description="Model name for this stage")
+    max_latency_ms: Optional[int] = Field(None, description="Maximum latency in milliseconds")
+    gray_margin: float = Field(default=0.05, description="Gray zone margin for escalation")
+
+
+class RoutingConfig(BaseModel):
+    """Configuration for model routing cascade."""
+    enabled: bool = Field(default=False, description="Enable routing cascade")
+    stages: List[RoutingStage] = Field(default_factory=list, description="Routing stages in order")
+    log_route: bool = Field(default=True, description="Log routing decisions")
+
+
+class TriageItem(BaseModel):
+    """Item requiring human triage decision."""
+    note_path: str = Field(..., description="Path to the note file")
+    scores: Dict[str, float] = Field(..., description="Quality scores")
+    thresholds: Dict[str, float] = Field(..., description="Configured thresholds")
+    decision_suggested: str = Field(..., description="AI suggested decision: keep/discard")
+    reason: str = Field(..., description="Reason for triage")
+    escalated_model: Optional[str] = Field(None, description="Model used for escalation")
+    user_decision: Optional[str] = Field(None, description="Human decision: keep/discard")
+    decided_at: Optional[str] = Field(None, description="Timestamp of decision")
+    fingerprint: Optional[str] = Field(None, description="Content fingerprint to avoid re-asking")
+
+
+class TriageConfig(BaseModel):
+    """Configuration for borderline triage."""
+    enabled: bool = Field(default=False, description="Enable triage for borderline cases")
+    margin: float = Field(default=0.05, description="Gray zone margin around thresholds")
+    dimensions: List[str] = Field(default_factory=lambda: ["overall", "relevance"], description="Dimensions to check for triage")
+    persist_path: str = Field(default="metadata/triage.jsonl", description="Path to persist triage decisions")
+    auto_escalate_model: Optional[str] = Field(None, description="Model to re-score with before triage")
+
+
 class TaskModels(BaseModel):
     """Task-specific model configuration for optimized performance."""
     
@@ -217,6 +256,8 @@ class CurationConfig(BaseModel):
     """Configuration for the curation process."""
     ai_model: str = Field(default="gpt-oss:20b", description="Default/fallback AI model")
     models: TaskModels = Field(default_factory=TaskModels, description="Task-specific model configuration")
+    routing: RoutingConfig = Field(default_factory=RoutingConfig, description="Model routing configuration")
+    triage: TriageConfig = Field(default_factory=TriageConfig, description="Borderline triage configuration")
     reasoning_level: str = Field(default="low", description="AI reasoning level: low, medium, high")
     
     @validator('reasoning_level')

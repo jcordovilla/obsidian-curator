@@ -210,18 +210,181 @@ class AIAnalyzer:
         
         return json_str
     
-    def analyze_note(self, note: Note) -> Tuple[QualityScore, List[Theme], ContentStructure, str]:
+    def _analyze_quality_with_routing(self, note: Note) -> Tuple[QualityScore, Dict[str, Any]]:
+        """Analyze quality using routing cascade with escalation.
+        
+        Args:
+            note: Note to analyze
+            
+        Returns:
+            Tuple of (quality_scores, route_info)
+        """
+        import time
+        
+        route_info = {
+            "stages_used": [],
+            "total_latency_ms": 0,
+            "escalation_reason": None,
+            "final_stage": None
+        }
+        
+        content = note.content[:2000] if note.content else ""
+        if not content or len(content.strip()) < 50:
+            # For very short content, use fast assessment
+            quality_scores = self._get_short_content_scores(note)
+            route_info.update({
+                "stages_used": ["short_content_bypass"],
+                "final_stage": "short_content_bypass",
+                "total_latency_ms": 0
+            })
+            return quality_scores, route_info
+        
+        for stage_idx, stage in enumerate(self.config.routing.stages):
+            start_time = time.time()
+            
+            try:
+                # Analyze with current stage model
+                logger.debug(f"Trying stage {stage_idx + 1}: {stage.model}")
+                quality_scores = self._analyze_quality_with_model(note, content, stage.model)
+                
+                latency_ms = (time.time() - start_time) * 1000
+                route_info["stages_used"].append({
+                    "stage": stage_idx + 1,
+                    "model": stage.model,
+                    "latency_ms": latency_ms
+                })
+                route_info["total_latency_ms"] += latency_ms
+                
+                # Check if latency exceeded threshold
+                if stage.max_latency_ms and latency_ms > stage.max_latency_ms:
+                    logger.warning(f"Stage {stage_idx + 1} exceeded latency threshold: {latency_ms:.1f}ms > {stage.max_latency_ms}ms")
+                    route_info["escalation_reason"] = f"latency_exceeded_{stage.max_latency_ms}ms"
+                    continue
+                
+                # Check if scores are in gray zone (need escalation)
+                if self._is_in_gray_zone(quality_scores, stage.gray_margin):
+                    logger.info(f"Stage {stage_idx + 1} result in gray zone, escalating...")
+                    route_info["escalation_reason"] = f"gray_zone_margin_{stage.gray_margin}"
+                    # Continue to next stage if available
+                    if stage_idx < len(self.config.routing.stages) - 1:
+                        continue
+                
+                # Success - return results
+                route_info["final_stage"] = stage.model
+                if self.config.routing.log_route:
+                    logger.info(f"Quality analysis completed using {stage.model} in {latency_ms:.1f}ms")
+                
+                return quality_scores, route_info
+                
+            except Exception as e:
+                logger.warning(f"Stage {stage_idx + 1} ({stage.model}) failed: {e}")
+                route_info["stages_used"].append({
+                    "stage": stage_idx + 1,
+                    "model": stage.model,
+                    "error": str(e),
+                    "latency_ms": (time.time() - start_time) * 1000
+                })
+                route_info["escalation_reason"] = f"stage_error_{stage.model}"
+                continue
+        
+        # All stages failed or exhausted - use fallback
+        logger.warning("All routing stages failed or exhausted, using fallback analysis")
+        quality_scores = self._analyze_quality(note)
+        route_info["final_stage"] = "fallback"
+        route_info["escalation_reason"] = "all_stages_exhausted"
+        
+        return quality_scores, route_info
+    
+    def _analyze_quality_with_model(self, note: Note, content: str, model: str) -> QualityScore:
+        """Analyze quality using a specific model.
+        
+        Args:
+            note: Note to analyze
+            content: Content to analyze
+            model: Model to use
+            
+        Returns:
+            QualityScore object
+        """
+        # Override the model for this analysis
+        original_model = self.model
+        self.model = model
+        
+        try:
+            return self._ai_analyze_quality(note, content)
+        finally:
+            # Restore original model
+            self.model = original_model
+    
+    def _is_in_gray_zone(self, quality_scores: QualityScore, gray_margin: float) -> bool:
+        """Check if quality scores are in the gray zone around thresholds.
+        
+        Args:
+            quality_scores: Quality scores to check
+            gray_margin: Gray zone margin
+            
+        Returns:
+            True if in gray zone
+        """
+        # Check key thresholds for gray zone
+        thresholds_to_check = [
+            (quality_scores.overall, self.config.quality_threshold),
+            (quality_scores.relevance, self.config.relevance_threshold),
+        ]
+        
+        # Add analytical depth if configured
+        if hasattr(self.config, 'analytical_depth_threshold'):
+            thresholds_to_check.append(
+                (quality_scores.analytical_depth, self.config.analytical_depth_threshold)
+            )
+        
+        for score, threshold in thresholds_to_check:
+            if abs(score - threshold) <= gray_margin:
+                return True
+        
+        return False
+    
+    def _get_short_content_scores(self, note: Note) -> QualityScore:
+        """Get quality scores for short content without full AI analysis.
+        
+        Args:
+            note: Note to analyze
+            
+        Returns:
+            QualityScore object
+        """
+        # Audio content gets special treatment
+        if note.content_type == "audio_annotation":
+            return QualityScore(
+                overall=0.4, relevance=0.5, completeness=0.3, credibility=0.4, clarity=0.3,
+                analytical_depth=0.2, evidence_quality=0.3, critical_thinking=0.2,
+                argument_structure=0.2, practical_value=0.4
+            )
+        else:
+            return QualityScore(
+                overall=0.2, relevance=0.3, completeness=0.1, credibility=0.2, clarity=0.1,
+                analytical_depth=0.1, evidence_quality=0.1, critical_thinking=0.1,
+                argument_structure=0.1, practical_value=0.1
+            )
+    
+    def analyze_note(self, note: Note) -> Tuple[QualityScore, List[Theme], ContentStructure, str, Optional[Dict[str, Any]]]:
         """Analyze a note for quality, themes, and structure.
         
         Args:
             note: Note to analyze
             
         Returns:
-            Tuple of (quality_scores, themes, content_structure, curation_reason)
+            Tuple of (quality_scores, themes, content_structure, curation_reason, route_info)
         """
         try:
-            # Analyze content quality
-            quality_scores = self._analyze_quality(note)
+            # Check if routing is enabled
+            if self.config.routing.enabled and self.config.routing.stages:
+                # Use routing cascade for quality analysis
+                quality_scores, route_info = self._analyze_quality_with_routing(note)
+            else:
+                # Standard analysis
+                quality_scores = self._analyze_quality(note)
+                route_info = None
             
             # Identify themes
             themes = self._identify_themes(note)
@@ -232,12 +395,12 @@ class AIAnalyzer:
             # Determine curation reason
             curation_reason = self._determine_curation_reason(quality_scores, themes, content_structure, note)
             
-            return quality_scores, themes, content_structure, curation_reason
+            return quality_scores, themes, content_structure, curation_reason, route_info
             
         except Exception as e:
             logger.error(f"Failed to analyze note {note.title}: {e}")
             # Return default scores on failure
-            return self._get_default_scores(), [], self._get_default_structure(), f"Analysis failed: {str(e)}"
+            return self._get_default_scores(), [], self._get_default_structure(), f"Analysis failed: {str(e)}", None
     
     def _analyze_quality(self, note: Note) -> QualityScore:
         """Analyze the quality of a note's content using AI.

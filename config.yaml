@@ -10,6 +10,28 @@ models:
   structure_analysis: "phi3:mini"
   fallback: "gpt-oss:20b"
 
+# Model Routing Cascade Configuration
+routing:
+  enabled: true
+  stages:
+    - model: "phi3:mini"
+      max_latency_ms: 800
+      gray_margin: 0.05
+    - model: "llama3.1:8b"
+      max_latency_ms: 2500
+      gray_margin: 0.03
+    - model: "gpt-oss:20b"
+      gray_margin: 0.02
+  log_route: true
+
+# Borderline Triage Configuration
+triage:
+  enabled: true
+  margin: 0.05
+  dimensions: ["overall", "relevance", "professional_writing"]
+  persist_path: "metadata/triage.jsonl"
+  auto_escalate_model: "llama3.1:8b"
+
 # Reasoning Level
 reasoning_level: "low"
 

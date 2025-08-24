@@ -4,7 +4,7 @@ import random
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Iterator
+from typing import List, Optional, Iterator, Dict, Any
 
 from loguru import logger
 from tqdm import tqdm
@@ -22,6 +22,7 @@ from .ai_analyzer import AIAnalyzer
 from .theme_classifier import ThemeClassifier
 from .vault_organizer import VaultOrganizer
 from .note_discovery import discover_markdown_files
+from .triage import TriageManager
 
 
 class ObsidianCurator:
@@ -47,6 +48,7 @@ class ObsidianCurator:
             similarity_threshold=config.theme_similarity_threshold
         )
         self.vault_organizer = VaultOrganizer(config)
+        self.triage_manager = TriageManager(config.triage)
         
         logger.info("Obsidian Curator initialized")
         logger.debug(f"Configuration: {config}")
@@ -314,11 +316,57 @@ class ObsidianCurator:
             for note in pbar:
                 try:
                     # Perform AI analysis with enhanced metrics
-                    quality_scores, themes, content_structure, curation_reason = self.ai_analyzer.analyze_note(note)
+                    analysis_result = self.ai_analyzer.analyze_note(note)
+                    if len(analysis_result) == 5:
+                        quality_scores, themes, content_structure, curation_reason, route_info = analysis_result
+                    else:
+                        # Backward compatibility
+                        quality_scores, themes, content_structure, curation_reason = analysis_result
+                        route_info = None
                     
-                    # Determine if note should be curated
-                    content_length = len(note.content) if note.content else 0
-                    is_curated = self._should_curate(quality_scores, themes, content_length)
+                    # Check if this note needs triage
+                    thresholds = {
+                        "overall": self.config.quality_threshold,
+                        "relevance": self.config.relevance_threshold,
+                        "professional_writing": getattr(self.config, 'professional_writing_threshold', 0.65),
+                        "analytical_depth": getattr(self.config, 'analytical_depth_threshold', 0.65)
+                    }
+                    
+                    # Check for existing triage decision
+                    existing_decision = self.triage_manager.get_decision(note)
+                    if existing_decision:
+                        is_curated = existing_decision == "keep"
+                        needs_triage = False
+                        triage_info = {"previous_decision": existing_decision}
+                        logger.info(f"Using previous triage decision for {note.title}: {existing_decision}")
+                    else:
+                        # Check if triage is needed
+                        needs_triage = self.triage_manager.needs_triage(note, quality_scores, thresholds)
+                        
+                        if needs_triage:
+                            # For now, apply standard curation logic but mark for triage
+                            content_length = len(note.content) if note.content else 0
+                            suggested_decision = "keep" if self._should_curate(quality_scores, themes, content_length) else "discard"
+                            
+                            # Create triage item
+                            triage_item = self.triage_manager.create_triage_item(
+                                note, quality_scores, thresholds, suggested_decision,
+                                f"Borderline scores in gray zone (margin: {self.config.triage.margin})"
+                            )
+                            
+                            # Defer final decision - for CLI mode, we'll use suggested decision
+                            # GUI can handle this differently
+                            is_curated = suggested_decision == "keep"
+                            triage_info = {
+                                "fingerprint": triage_item.fingerprint,
+                                "suggested_decision": suggested_decision,
+                                "reason": triage_item.reason
+                            }
+                        else:
+                            # Standard curation decision
+                            content_length = len(note.content) if note.content else 0
+                            is_curated = self._should_curate(quality_scores, themes, content_length)
+                            triage_info = None
                     
                     # Create curation result with enhanced metrics
                     result = CurationResult(
@@ -329,7 +377,10 @@ class ObsidianCurator:
                         content_structure=content_structure,  # NEW: Include content structure
                         is_curated=is_curated,
                         curation_reason=curation_reason,
-                        processing_notes=[]
+                        processing_notes=[],
+                        route_info=route_info,  # NEW: Include routing information
+                        needs_triage=needs_triage,  # NEW: Triage flag
+                        triage_info=triage_info  # NEW: Triage information
                     )
                     
                     curation_results.append(result)
@@ -375,7 +426,10 @@ class ObsidianCurator:
                         content_structure=default_structure,  # NEW: Include content structure
                         is_curated=False,
                         curation_reason=f"Analysis failed: {str(e)}",
-                        processing_notes=[f"AI analysis failed: {str(e)}"]
+                        processing_notes=[f"AI analysis failed: {str(e)}"],
+                        route_info=None,
+                        needs_triage=False,
+                        triage_info=None
                     )
                     curation_results.append(result)
                     continue
@@ -859,3 +913,31 @@ tags:
         
         logger.info(f"Batch processing complete: {stats.curated_notes}/{stats.total_notes} total curated")
         return stats
+    
+    def get_triage_stats(self) -> Dict[str, Any]:
+        """Get triage statistics.
+        
+        Returns:
+            Dictionary with triage statistics
+        """
+        return self.triage_manager.get_stats()
+    
+    def get_pending_triage_items(self) -> List:
+        """Get pending triage items for GUI display.
+        
+        Returns:
+            List of pending triage items
+        """
+        return self.triage_manager.get_pending_items()
+    
+    def resolve_triage_item(self, fingerprint: str, decision: str) -> bool:
+        """Resolve a triage item with human decision.
+        
+        Args:
+            fingerprint: Item fingerprint
+            decision: Human decision: "keep" or "discard"
+            
+        Returns:
+            True if resolved successfully
+        """
+        return self.triage_manager.resolve_triage_item(fingerprint, decision)
