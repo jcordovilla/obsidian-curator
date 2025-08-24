@@ -11,6 +11,7 @@ import json
 from datetime import datetime
 import threading
 import time
+import logging
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -25,6 +26,9 @@ from PyQt6.QtGui import QFont, QPalette, QColor
 from .core import ObsidianCurator
 from .models import CurationConfig, CurationStats, CurationResult
 from .note_discovery import discover_markdown_files
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 
 class CurationWorker(QThread):
@@ -55,41 +59,128 @@ class CurationWorker(QThread):
         }
     
     def run(self):
-        """Run the curation process with real-time progress updates."""
+        """Run the curation process using the same core logic as CLI."""
         try:
             start_time = time.time()
             
             # Step 1: Discover notes
             self.progress_updated.emit(0, 100, "Discovering notes...")
-            notes = self._discover_notes_with_progress()
+            file_paths = self._discover_notes_with_progress()
             
-            if not notes:
+            if not file_paths:
                 self.error_occurred.emit("No notes found in input vault")
                 return
             
-            self.current_stats['total_notes'] = len(notes)
+            # Limit to sample size if specified
+            if self.config.sample_size:
+                file_paths = file_paths[:self.config.sample_size]
+            
+            self.current_stats['total_notes'] = len(file_paths)
             self.stats_updated.emit(self.current_stats.copy())
             
-            # Notes are already sampled during discovery, just update progress
-            self.progress_updated.emit(20, 100, f"Ready to process {len(notes)} notes")
+            # Step 2: Create curator instance (same as CLI)
+            from .core import ObsidianCurator
+            curator = ObsidianCurator(self.config)
             
-            # Debug: Show which notes were selected
-            if self.config.sample_size:
-                note_names = [note.title[:50] for note in notes]
-                print(f"Selected {len(notes)} notes: {note_names}")  # Debug output
+            # Step 3: Process and analyze notes using CLI logic
+            self.progress_updated.emit(20, 100, f"Processing {len(file_paths)} notes...")
+            processed_notes = curator._process_selected_notes(file_paths)
             
-            # Step 2: Process and analyze notes
-            self._process_and_analyze_notes(notes)
+            # Step 4: AI analysis using CLI logic
+            self.progress_updated.emit(50, 100, "Performing AI analysis...")
+            curation_results = curator._analyze_notes(processed_notes)
             
-            if self._stop_requested:
-                return
+            # Log temporary directory info
+            if hasattr(curator, '_temp_output_path'):
+                logger.info(f"Temporary directory created: {curator._temp_output_path}")
+                logger.info(f"Temporary directory exists: {curator._temp_output_path.exists()}")
+                if curator._temp_output_path.exists():
+                    logger.info(f"Temporary directory contents: {list(curator._temp_output_path.rglob('*'))}")
+            else:
+                logger.warning("No temporary directory path found in curator")
             
-            # Step 3: Create curated vault
-            self.progress_updated.emit(95, 100, "Creating curated vault...")
-            final_stats = self._create_curated_vault()
+            # Update stats from results
+            curated_count = sum(1 for r in curation_results if r.is_curated)
+            rejected_count = len(curation_results) - curated_count
+            self.current_stats['curated_notes'] = curated_count
+            self.current_stats['rejected_notes'] = rejected_count
+            
+            # Update theme distribution
+            for result in curation_results:
+                if result.is_curated:
+                    for theme in result.themes:
+                        theme_name = theme.name
+                        self.current_stats['themes_distribution'][theme_name] = \
+                            self.current_stats['themes_distribution'].get(theme_name, 0) + 1
+                        self.theme_updated.emit(theme_name, self.current_stats['themes_distribution'][theme_name])
+                    
+                    # Create note data for preview
+                    note_data = {
+                        'title': result.note.title,
+                        'theme': result.themes[0].name if result.themes else 'Unknown',
+                        'quality_score': result.quality_scores.overall,
+                        'professional_score': result.quality_scores.professional_writing_score,
+                        'content_preview': result.note.content[:200] + '...' if len(result.note.content) > 200 else result.note.content,
+                        'full_note': result.note,
+                        'quality_scores': result.quality_scores,
+                        'themes': result.themes,
+                        'content_structure': result.content_structure
+                    }
+                    
+                    self.current_stats['curated_notes_list'].append(note_data)
+                    self.note_curated.emit(note_data)
+            
+            # Update stats
+            self.stats_updated.emit(self.current_stats.copy())
+            
+            # Step 5: Create curated vault using the same logic as CLI
+            self.progress_updated.emit(90, 100, "Creating curated vault...")
+            
+            try:
+                # Use the curator's method to create the vault (same as CLI)
+                stats = curator._create_curated_vault(curation_results, Path(self.output_path))
+                logger.info(f"Successfully created curated vault at: {self.output_path}")
+            except Exception as e:
+                logger.error(f"Failed to create curated vault: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                # Try to manually move the temporary directory if it exists
+                if hasattr(curator, '_temp_output_path') and curator._temp_output_path.exists():
+                    import shutil
+                    try:
+                        if Path(self.output_path).exists():
+                            shutil.rmtree(self.output_path)
+                        shutil.move(str(curator._temp_output_path), str(self.output_path))
+                        logger.info(f"Manually moved temporary directory to: {self.output_path}")
+                        # Create basic stats
+                        stats = type('Stats', (), {
+                            'total_notes': len(curation_results),
+                            'curated_notes': curated_count,
+                            'rejected_notes': rejected_count,
+                            'processing_time': time.time() - start_time,
+                            'curation_rate': (curated_count / len(curation_results) * 100) if curation_results else 0,
+                            'themes_distribution': self.current_stats['themes_distribution'],
+                            'quality_distribution': {}
+                        })()
+                    except Exception as move_error:
+                        logger.error(f"Failed to manually move directory: {move_error}")
+                        raise e
+                else:
+                    raise e
             
             # Update final timing
-            final_stats['processing_time'] = time.time() - start_time
+            stats.processing_time = time.time() - start_time
+            
+            # Convert to dict for signal
+            final_stats = {
+                'total_notes': stats.total_notes,
+                'curated_notes': stats.curated_notes,
+                'rejected_notes': stats.rejected_notes,
+                'processing_time': stats.processing_time,
+                'curation_rate': stats.curation_rate,
+                'themes_distribution': stats.themes_distribution,
+                'quality_distribution': stats.quality_distribution
+            }
             
             self.finished.emit(final_stats)
             
@@ -126,167 +217,8 @@ class CurationWorker(QThread):
             # Sort by modification time (newest first) for full runs
             valid_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
         
-        # Load notes with progress
-        notes = []
-        total_files = len(valid_files)
-        
-        for i, file_path in enumerate(valid_files):
-            if self._stop_requested:
-                break
-                
-            # If we have enough notes for sample, stop early
-            if self.config.sample_size and len(notes) >= self.config.sample_size:
-                break
-                
-            try:
-                note = processor.process_note(file_path)
-                notes.append(note)
-                
-                # Update progress
-                progress = max(1, int((i + 1) / total_files * 20))  # 20% for discovery, minimum 1%
-                self.progress_updated.emit(progress, 100, f"Loading ({len(notes)}): {file_path.name}")
-                
-            except Exception as e:
-                continue
-        
-        return notes
-    
-    def _process_and_analyze_notes(self, notes):
-        """Process and analyze notes with progress updates."""
-        from .ai_analyzer import AIAnalyzer
-        from .models import QualityScore, ContentStructure
-        
-        ai_analyzer = AIAnalyzer(self.config)
-        
-        for i, note in enumerate(notes):
-            if self._stop_requested:
-                break
-            
-            try:
-                # Update progress at start
-                base_progress = 20 + int((i / len(notes)) * 70)  # 70% for analysis
-                self.progress_updated.emit(base_progress, 100, f"Processing content ({i+1}/{len(notes)}): {note.title[:50]}...")
-                
-                # Perform AI analysis
-                quality_scores, themes, content_structure, curation_reason = ai_analyzer.analyze_note(note)
-                
-                # Update progress after AI analysis
-                final_progress = 20 + int(((i + 1) / len(notes)) * 70)  # Update after completion
-                self.progress_updated.emit(final_progress, 100, f"Completed ({i+1}/{len(notes)}): {note.title[:50]}...")
-                
-                # Determine if note should be curated
-                is_curated = self._should_curate(quality_scores, themes)
-                
-                if is_curated:
-                    self.current_stats['curated_notes'] += 1
-                    
-                    # Create note data for preview
-                    note_data = {
-                        'title': note.title,
-                        'theme': themes[0].name if themes else 'Unknown',
-                        'quality_score': quality_scores.overall,
-                        'professional_score': quality_scores.professional_writing_score,
-                        'content_preview': note.content[:200] + '...' if len(note.content) > 200 else note.content,
-                        'full_note': note,
-                        'quality_scores': quality_scores,
-                        'themes': themes,
-                        'content_structure': content_structure
-                    }
-                    
-                    self.current_stats['curated_notes_list'].append(note_data)
-                    self.note_curated.emit(note_data)
-                    
-                    # Update theme distribution
-                    for theme in themes:
-                        theme_name = theme.name
-                        self.current_stats['themes_distribution'][theme_name] = \
-                            self.current_stats['themes_distribution'].get(theme_name, 0) + 1
-                        self.theme_updated.emit(theme_name, self.current_stats['themes_distribution'][theme_name])
-                else:
-                    self.current_stats['rejected_notes'] += 1
-                
-                # Update stats
-                self.stats_updated.emit(self.current_stats.copy())
-                
-            except Exception as e:
-                self.current_stats['rejected_notes'] += 1
-                self.stats_updated.emit(self.current_stats.copy())
-                continue
-    
-    def _should_curate(self, quality_scores, themes) -> bool:
-        """Determine if a note should be curated."""
-        # Check quality and relevance thresholds
-        if (quality_scores.overall >= self.config.quality_threshold and 
-            quality_scores.relevance >= self.config.relevance_threshold):
-            
-            # If target themes specified, check theme alignment
-            if self.config.target_themes:
-                theme_names = [theme.name.lower() for theme in themes]
-                theme_alignment = any(
-                    target.lower() in theme_name or theme_name in target.lower()
-                    for target in self.config.target_themes
-                    for theme_name in theme_names
-                )
-                return theme_alignment
-            
-            return True
-        
-        return False
-    
-    def _create_curated_vault(self):
-        """Create the curated vault and return final stats."""
-        from .theme_classifier import ThemeClassifier
-        from .vault_organizer import VaultOrganizer
-        from .models import CurationResult
-        
-        # Create curation results from our processed data
-        curation_results = []
-        
-        for note_data in self.current_stats['curated_notes_list']:
-            result = CurationResult(
-                note=note_data['full_note'],
-                cleaned_content=note_data['full_note'].content,
-                quality_scores=note_data['quality_scores'],
-                themes=note_data['themes'],
-                content_structure=note_data['content_structure'],
-                is_curated=True,
-                curation_reason="Passed quality and relevance thresholds",
-                processing_notes=[]
-            )
-            curation_results.append(result)
-        
-        if curation_results:
-            # Create theme groups and vault structure
-            theme_classifier = ThemeClassifier()
-            theme_groups = theme_classifier.classify_themes(curation_results)
-            vault_structure = theme_classifier.create_vault_structure(self.output_path, theme_groups)
-            
-            # Create curated vault
-            vault_organizer = VaultOrganizer(self.config)
-            stats = vault_organizer.create_curated_vault(
-                curation_results, self.output_path, vault_structure
-            )
-        else:
-            from .models import CurationStats
-            stats = CurationStats(
-                total_notes=self.current_stats['total_notes'],
-                curated_notes=0,
-                rejected_notes=self.current_stats['rejected_notes'],
-                processing_time=0.0,
-                themes_distribution={},
-                quality_distribution={}
-            )
-        
-        # Convert to dict for signal
-        return {
-            'total_notes': stats.total_notes,
-            'curated_notes': stats.curated_notes,
-            'rejected_notes': stats.rejected_notes,
-            'processing_time': 0.0,  # Will be updated by caller
-            'curation_rate': stats.curation_rate,
-            'themes_distribution': stats.themes_distribution,
-            'quality_distribution': stats.quality_distribution
-        }
+        # Return file paths directly (CLI will process them)
+        return valid_files
     
     def stop(self):
         """Request to stop the curation process."""

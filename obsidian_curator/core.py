@@ -2,6 +2,7 @@
 
 import random
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Iterator
 
@@ -283,6 +284,32 @@ class ObsidianCurator:
         """
         curation_results = []
         
+        # Create output directory structure for immediate saving
+        from .theme_classifier import ThemeClassifier
+        from .vault_organizer import VaultOrganizer
+        
+        theme_classifier = ThemeClassifier()
+        vault_organizer = VaultOrganizer(self.config)
+        
+        # Create temporary output directory for immediate saving
+        # Use a more specific path that includes the target directory
+        temp_dir_name = f"temp_curated_vault_{int(time.time())}"
+        # Create temp directory in the current working directory for consistency
+        temp_output_path = Path.cwd() / temp_dir_name
+        temp_output_path.mkdir(exist_ok=True)
+        
+        # Store the temporary directory path for later use
+        self._temp_output_path = temp_output_path.resolve()  # Use absolute path
+        logger.info(f"Created temporary directory: {self._temp_output_path}")
+        logger.info(f"Temporary directory exists: {self._temp_output_path.exists()}")
+        logger.info(f"Temporary directory absolute: {self._temp_output_path.resolve()}")
+        
+        # Track saved notes to avoid duplicates
+        saved_notes = set()
+        
+        logger.info(f"Starting analysis of {len(notes)} notes")
+        logger.info(f"Temporary directory for saving: {temp_output_path}")
+        
         with tqdm(notes, desc="AI analysis", unit="notes") as pbar:
             for note in pbar:
                 try:
@@ -307,11 +334,21 @@ class ObsidianCurator:
                     
                     curation_results.append(result)
                     
+                    # Save curated notes immediately to avoid losing work
+                    if is_curated and note.title not in saved_notes:
+                        try:
+                            self._save_note_immediately(result, temp_output_path, theme_classifier)
+                            saved_notes.add(note.title)
+                            logger.info(f"Saved note immediately: {note.title}")
+                        except Exception as save_error:
+                            logger.warning(f"Failed to save note {note.title}: {save_error}")
+                    
                     # Update progress
                     curated_count = sum(1 for r in curation_results if r.is_curated)
                     pbar.set_postfix({
                         "analyzed": len(curation_results),
                         "curated": curated_count,
+                        "saved": len(saved_notes),
                         "rate": f"{(curated_count/len(curation_results)*100):.1f}%"
                     })
                     
@@ -346,6 +383,10 @@ class ObsidianCurator:
         curated_count = sum(1 for r in curation_results if r.is_curated)
         rejected_count = len(curation_results) - curated_count
         logger.info(f"Analyzed {len(curation_results)} notes: {curated_count} curated, {rejected_count} rejected")
+        logger.info(f"Saved {len(saved_notes)} notes to temporary directory: {temp_output_path}")
+        
+        # Store the temporary directory path for later use
+        self._temp_output_path = temp_output_path
         
         # Log detailed curation decisions for analysis
         for result in curation_results:
@@ -450,19 +491,95 @@ class ObsidianCurator:
             logger.info(f"  Content length: {content_length} chars")
             logger.info(f"  Final decision: {'CURATE' if should_curate else 'REJECT'}")
             
-            # Log the decision
-            curation_reason = "; ".join(curation_reasons)
-            if should_curate:
-                logger.info(f"CURATING note: {curation_reason}")
-            else:
-                logger.info(f"REJECTING note: {curation_reason}")
-            
             return should_curate
             
         except Exception as e:
-            logger.error(f"Error in curation decision logic: {e}")
-            # Default to curating on error to avoid losing content
-            return True
+            logger.error(f"Error in curation decision for note: {e}")
+            return False
+    
+    def _save_note_immediately(self, result, output_path, theme_classifier):
+        """Save a curated note immediately to disk to avoid losing work."""
+        try:
+            logger.info(f"Attempting to save note immediately: {result.note.title}")
+            logger.info(f"Output path: {output_path}")
+            logger.info(f"Output path exists: {output_path.exists()}")
+            
+            # Classify themes and create folder structure
+            theme_groups = theme_classifier.classify_themes([result])
+            logger.info(f"Theme groups: {theme_groups}")
+            
+            # Create theme folders
+            for theme_name, notes in theme_groups.items():
+                theme_path = output_path / theme_name
+                logger.info(f"Creating theme path: {theme_path}")
+                theme_path.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Theme path created: {theme_path.exists()}")
+                
+                # Save note to appropriate theme folder
+                for note_result in notes:
+                    if note_result.is_curated:
+                        # Create filename
+                        safe_title = "".join(c for c in note_result.note.title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                        safe_title = safe_title.replace(' ', '_').lower()
+                        filename = f"{safe_title}.md"
+                        file_path = theme_path / filename
+                        logger.info(f"Creating file: {file_path}")
+                        
+                        # Create curated note content
+                        curated_content = self._create_curated_note_content(note_result)
+                        logger.info(f"Content length: {len(curated_content)} characters")
+                        
+                        # Write to file immediately
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            f.write(curated_content)
+                        
+                        logger.info(f"Successfully saved note immediately: {file_path}")
+                        logger.info(f"File exists after save: {file_path.exists()}")
+                        logger.info(f"File size: {file_path.stat().st_size} bytes")
+                        
+        except Exception as e:
+            logger.error(f"Failed to save note immediately: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+    
+    def _create_curated_note_content(self, result):
+        """Create the content for a curated note."""
+        note = result.note
+        quality = result.quality_scores
+        themes = result.themes
+        
+        # Create YAML frontmatter
+        frontmatter = f"""---
+title: {note.title}
+curated_date: {datetime.now().isoformat()}
+        source: {note.source_url or 'Unknown'}
+tags:
+"""
+        
+        for theme in themes:
+            frontmatter += f"  - {theme.name}\n"
+        
+        frontmatter += f"language: {note.metadata.get('language', 'en')}\n---\n\n"
+        
+        # Create content
+        content = f"# {note.title}\n\n"
+        content += "## Quality Assessment\n\n"
+        content += f"- **Overall Quality**: {quality.overall:.2f}/1.0\n"
+        content += f"- **Relevance**: {quality.relevance:.2f}/1.0\n"
+        content += f"- **Analytical Depth**: {quality.analytical_depth:.2f}/1.0\n"
+        content += f"- **Critical Thinking**: {quality.critical_thinking:.2f}/1.0\n"
+        content += f"- **Evidence Quality**: {quality.evidence_quality:.2f}/1.0\n"
+        content += f"- **Argument Structure**: {quality.argument_structure:.2f}/1.0\n"
+        content += f"- **Practical Value**: {quality.practical_value:.2f}/1.0\n\n"
+        
+        content += "## Identified Themes\n\n"
+        for theme in themes:
+            content += f"- **{theme.name}** (confidence: {theme.confidence:.2f})\n"
+        
+        content += "\n## Content\n\n"
+        content += note.content
+        
+        return frontmatter + content
     
     def _create_curated_vault(self, curation_results: List[CurationResult], 
                              output_path: Path) -> CurationStats:
@@ -475,8 +592,13 @@ class ObsidianCurator:
         Returns:
             CurationStats with results
         """
+        logger.info(f"Creating curated vault for {len(curation_results)} results")
+        logger.info(f"Output path: {output_path}")
+        logger.info(f"Output path exists: {output_path.exists()}")
+        
         # Filter curated results
         curated_results = [r for r in curation_results if r.is_curated]
+        logger.info(f"Curated results: {len(curated_results)}")
         
         if not curated_results:
             logger.warning("No notes passed curation criteria")
@@ -489,6 +611,76 @@ class ObsidianCurator:
                 quality_distribution={}
             )
         
+        # Check if notes were already saved during processing
+        # First check if we have a stored temporary directory path
+        if hasattr(self, '_temp_output_path'):
+            logger.info(f"Found stored temporary path: {self._temp_output_path}")
+            logger.info(f"Stored temp path exists: {self._temp_output_path.exists()}")
+            if self._temp_output_path.exists():
+                latest_temp_dir = self._temp_output_path
+                logger.info(f"Using stored temporary directory: {latest_temp_dir}")
+            else:
+                logger.warning("Stored temporary path does not exist")
+                latest_temp_dir = None
+        else:
+            logger.info("No stored temporary path found")
+            latest_temp_dir = None
+        
+        if not latest_temp_dir:
+            # Fallback: Look for temporary directories that might contain saved notes
+            import glob
+            temp_dirs = glob.glob("temp_curated_vault_*")
+            logger.info(f"Found {len(temp_dirs)} temporary directories: {temp_dirs}")
+            
+            if temp_dirs:
+                # Use the most recent temporary directory
+                latest_temp_dir = max(temp_dirs, key=lambda x: int(x.split('_')[-1]))
+                latest_temp_dir = Path(latest_temp_dir)
+                logger.info(f"Using fallback temporary directory: {latest_temp_dir}")
+            else:
+                latest_temp_dir = None
+                logger.warning("No temporary directories found")
+        
+        if latest_temp_dir and latest_temp_dir.exists():
+            logger.info(f"Found temporary directory with saved notes: {latest_temp_dir}")
+            logger.info(f"Temporary directory contents:")
+            for item in latest_temp_dir.rglob("*"):
+                if item.is_file():
+                    logger.info(f"  File: {item.relative_to(latest_temp_dir)} ({item.stat().st_size} bytes)")
+                elif item.is_dir():
+                    logger.info(f"  Directory: {item.relative_to(latest_temp_dir)}")
+            
+            # Move saved notes to final output location
+            import shutil
+            try:
+                if output_path.exists():
+                    logger.info(f"Removing existing output path: {output_path}")
+                    shutil.rmtree(output_path)
+                
+                logger.info(f"Moving {latest_temp_dir} to {output_path}")
+                shutil.move(str(latest_temp_dir), str(output_path))
+                logger.info(f"Successfully moved saved notes from {latest_temp_dir} to {output_path}")
+                
+                # Create final metadata and statistics
+                stats = self._create_final_metadata(curation_results, output_path)
+                
+                # Clean up the stored temporary path
+                if hasattr(self, '_temp_output_path'):
+                    delattr(self, '_temp_output_path')
+                
+                return stats
+                
+            except Exception as e:
+                logger.error(f"Failed to move saved notes: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                # Fall back to normal processing
+        else:
+            logger.warning("No temporary directory found or it doesn't exist")
+        
+        # Normal processing if no temporary directory found
+        logger.info("Creating curated vault with normal processing...")
+        
         # Create theme groups and vault structure
         theme_groups = self.theme_classifier.classify_themes(curated_results)
         vault_structure = self.theme_classifier.create_vault_structure(output_path, theme_groups)
@@ -499,6 +691,74 @@ class ObsidianCurator:
         )
         
         return stats
+    
+    def _create_final_metadata(self, curation_results: List[CurationResult], output_path: Path) -> CurationStats:
+        """Create final metadata and statistics for the curated vault."""
+        try:
+            # Create metadata directory
+            metadata_path = output_path / "metadata"
+            metadata_path.mkdir(exist_ok=True)
+            
+            # Calculate statistics
+            total_notes = len(curation_results)
+            curated_notes = sum(1 for r in curation_results if r.is_curated)
+            rejected_notes = total_notes - curated_notes
+            
+            # Create theme distribution
+            themes_distribution = {}
+            for result in curation_results:
+                if result.is_curated:
+                    for theme in result.themes:
+                        theme_name = theme.name
+                        themes_distribution[theme_name] = themes_distribution.get(theme_name, 0) + 1
+            
+            # Create quality distribution
+            quality_distribution = {"0.6-0.8": curated_notes}  # Simplified for now
+            
+            # Create stats object
+            from .models import CurationStats
+            stats = CurationStats(
+                total_notes=total_notes,
+                curated_notes=curated_notes,
+                rejected_notes=rejected_notes,
+                processing_time=0.0,  # Will be set by caller
+                themes_distribution=themes_distribution,
+                quality_distribution=quality_distribution
+            )
+            
+            # Save statistics
+            import json
+            with open(metadata_path / "statistics.json", 'w', encoding='utf-8') as f:
+                json.dump(stats.dict(), f, indent=2, default=str)
+            
+            # Save configuration
+            config_data = {
+                'curation_config': self.config.dict(),
+                'generated_date': datetime.now().isoformat(),
+                'vault_structure': {
+                    'root_path': str(output_path),
+                    'theme_folders': {theme: str(output_path / theme) for theme in themes_distribution.keys()},
+                    'metadata_folder': str(metadata_path)
+                }
+            }
+            
+            with open(metadata_path / "configuration.json", 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, indent=2, default=str)
+            
+            logger.info(f"Created final metadata for {curated_notes} curated notes")
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Failed to create final metadata: {e}")
+            # Return basic stats on error
+            return CurationStats(
+                total_notes=len(curation_results),
+                curated_notes=sum(1 for r in curation_results if r.is_curated),
+                rejected_notes=sum(1 for r in curation_results if not r.is_curated),
+                processing_time=0.0,
+                themes_distribution={},
+                quality_distribution={}
+            )
     
     def create_checkpoint(self, processed_notes: List[str], total_notes: int, 
                          current_step: str) -> ProcessingCheckpoint:

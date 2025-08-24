@@ -491,8 +491,9 @@ class ContentProcessor:
         lines = content.split('\n')
         cleaned_lines = []
         
-        # Patterns for lines to completely remove (be very specific)
+        # More aggressive patterns for lines to completely remove
         skip_line_patterns = [
+            # Navigation and structural elements
             r'^Subjects \|.*',  # Subject line with tags
             r'^\d{1,2} \w+ \d{4} \|.*',  # Date line with source
             r'^\[Share on .*?\].*',  # Share buttons
@@ -509,6 +510,110 @@ class ContentProcessor:
             r'^\s*\.\s*$',  # Lines with just a period
             r'^\*\*\s*$',  # Empty bold markers
             r'^•\*\*\s*$',  # Bullet with empty bold
+            
+            # Website navigation and menus
+            r'^Secciones$',  # Section headers
+            r'^Casa Real.*',  # Royal family section
+            r'^Madrid.*',  # Madrid section
+            r'^Sevilla.*',  # Sevilla section
+            r'^Aragón.*',  # Aragon section
+            r'^Canarias.*',  # Canary Islands section
+            r'^Castilla y León.*',  # Castile and Leon section
+            r'^Cataluña.*',  # Catalonia section
+            r'^C\. Valenciana.*',  # Valencia section
+            r'^Galicia.*',  # Galicia section
+            r'^Navarra.*',  # Navarre section
+            r'^País Vasco.*',  # Basque Country section
+            r'^Toledo.*',  # Toledo section
+            r'^Internacional.*',  # International section
+            r'^Declaración Renta.*',  # Tax declaration section
+            r'^Inmobiliario.*',  # Real estate section
+            r'^Blogs.*',  # Blogs section
+            r'^Fe De Ratas.*',  # Fe de Ratas section
+            r'^El Astrolabio.*',  # El Astrolabio section
+            r'^El Sacapuntas.*',  # El Sacapuntas section
+            r'^Real Madrid.*',  # Real Madrid section
+            r'^Atlético de Madrid.*',  # Atletico Madrid section
+            r'^Fútbol.*',  # Football section
+            r'^Baloncesto.*',  # Basketball section
+            r'^Tenis.*',  # Tennis section
+            r'^Fórmula 1.*',  # Formula 1 section
+            r'^Motos.*',  # Motorcycles section
+            r'^Náutica.*',  # Sailing section
+            r'^Ciclismo.*',  # Cycling section
+            r'^Torneo ACBNext.*',  # ACB Next tournament section
+            r'^Ciencia.*',  # Science section
+            r'^Salud.*',  # Health section
+            
+            # Social media and sharing
+            r'^Síguenos en$',  # Follow us
+            r'^_ABC\.es_$',  # ABC.es header
+            
+            # Corporate website patterns
+            r'^This website uses cookies.*',  # Cookie notices
+            r'^By navigating around this site.*',  # Cookie consent
+            r'^Select your region$',  # Region selection
+            r'^By Business Objective$',  # Business objective headers
+            r'^Contact us today.*',  # Contact prompts
+            r'^Contact Sales$',  # Sales contact
+            r'^A member of our sales team.*',  # Sales team info
+            r'^Live Chat with Sales.*',  # Live chat
+            r'^View Our Products and Services$',  # Product section headers
+            r'^Download Resources$',  # Download section headers
+            r'^Copyright ©.*$',  # Copyright notices
+            r'^All rights reserved$',  # Rights reserved
+            r'^\d+\.\d+ KB\)$',  # File size indicators
+            r'^\d+\.\d+ MB\)$',  # File size indicators
+            r'^PIANOS.*$',  # Product names
+            r'^Self Assessment Checklist$',  # Product features
+            r'^Internal Network Reconnaissance Infographic$',  # Product features
+            r'^Report$',  # Generic report references
+            r'^Identifíquese$',  # Identify yourself
+            r'^Acceda a \*\*ClubABC\*\*.*',  # Access ClubABC
+            r'^Entre$',  # Enter
+            r'^¿Ha olvidado su contraseña\?$',  # Forgot password
+            r'^Regístrese$',  # Register
+            r'^Únase a \*\*ClubABC\*\*.*',  # Join ClubABC
+            r'^Regístrese ahora$',  # Register now
+            
+            # News and content sections
+            r'^Es Noticia$',  # It's News
+            r'^Castor.*',  # Castor news
+            r'^Presupuestos Generales.*',  # General Budget news
+            r'^Elecciones Francia.*',  # French elections news
+            r'^Cita Previa Declaración Renta.*',  # Tax appointment news
+            r'^Regalos Día de la Madre.*',  # Mother's Day gifts news
+            r'^Venezuela.*',  # Venezuela news
+            r'^La Casa de Papel.*',  # Money Heist news
+            r'^YouTube.*',  # YouTube news
+            r'^Brexit.*',  # Brexit news
+            
+            # Generic web elements
+            r'^\[.*?\]\(http.*\)$',  # Any markdown link that's just a link
+            r'^http[s]?://.*$',  # Standalone URLs
+            r'^www\..*$',  # Standalone www URLs
+            r'^[A-Z][a-z]+ \d{4}$',  # Date patterns like "May 2017"
+            r'^\d{1,2}/\d{1,2}/\d{4}$',  # Date patterns like "4/5/2017"
+            
+            # Corporate website patterns
+            r'^This website uses cookies.*',  # Cookie notices
+            r'^By navigating around this site.*',  # Cookie consent
+            r'^Select your region$',  # Region selection
+            r'^By Business Objective$',  # Business objective headers
+            r'^Contact us today.*',  # Contact prompts
+            r'^Contact Sales$',  # Sales contact
+            r'^A member of our sales team.*',  # Sales team info
+            r'^Live Chat with Sales.*',  # Live chat
+            r'^View Our Products and Services$',  # Product section headers
+            r'^Download Resources$',  # Download section headers
+            r'^Copyright ©.*$',  # Copyright notices
+            r'^All rights reserved$',  # Rights reserved
+            r'^\d+\.\d+ KB\)$',  # File size indicators
+            r'^\d+\.\d+ MB\)$',  # File size indicators
+            r'^PIANOS.*$',  # Product names (specific to this case)
+            r'^Self Assessment Checklist$',  # Product features
+            r'^Internal Network Reconnaissance Infographic$',  # Product features
+            r'^Report$',  # Generic report references
         ]
         
         # Process each line
@@ -528,17 +633,23 @@ class ContentProcessor:
             if should_skip:
                 continue
             
-            # Preserve content lines but clean them gently
+            # Clean the line more aggressively
             cleaned_line = line
             
-            # Only remove specific problematic elements, don't remove whole lines
+            # Remove problematic elements
             cleaned_line = re.sub(r'\[Share on .*?\].*?', '', cleaned_line)
             cleaned_line = re.sub(r'\[.*?\]\(http.*addthis.*\)', '', cleaned_line)
             cleaned_line = re.sub(r'<http[^>]*>', '', cleaned_line)
             cleaned_line = re.sub(r'http[s]?://www\.addthis\.com[^\s\)]*', '', cleaned_line)
             
-            # Keep the line even if it's just whitespace after cleaning (might be formatting)
-            cleaned_lines.append(cleaned_line)
+            # Remove more web clutter
+            cleaned_line = re.sub(r'\[.*?\]\(http.*\)', '', cleaned_line)  # Remove all markdown links
+            cleaned_line = re.sub(r'http[s]?://[^\s\)]+', '', cleaned_line)  # Remove all URLs
+            cleaned_line = re.sub(r'www\.[^\s\)]+', '', cleaned_line)  # Remove www URLs
+            
+            # Only keep lines with substantial content (not just navigation)
+            if len(cleaned_line.strip()) > 10:  # Lines must have at least 10 characters of actual content
+                cleaned_lines.append(cleaned_line)
         
         # Join the cleaned lines
         result = '\n'.join(cleaned_lines)
@@ -546,7 +657,13 @@ class ContentProcessor:
         # Remove excessive blank lines but preserve some structure
         result = re.sub(r'\n\s*\n\s*\n+', '\n\n', result)
         
-        return result
+        # Final cleanup - remove lines that are just punctuation or very short
+        final_lines = []
+        for line in result.split('\n'):
+            if len(line.strip()) > 5 or not line.strip():  # Keep lines with >5 chars or empty lines
+                final_lines.append(line)
+        
+        return '\n'.join(final_lines)
     
     def _clean_web_elements(self, soup: BeautifulSoup) -> None:
         """Clean up common web elements that add clutter.
@@ -1202,15 +1319,85 @@ class ContentProcessor:
             r'^.*placeholder.*$',  # Placeholder text
         ]
         
+        # Check for web clutter patterns (Spanish and English)
+        web_clutter_patterns = [
+            r'^Secciones$',  # Section headers
+            r'^Casa Real.*',  # Royal family section
+            r'^Madrid.*',  # Madrid section
+            r'^Sevilla.*',  # Sevilla section
+            r'^Aragón.*',  # Aragon section
+            r'^Canarias.*',  # Canary Islands section
+            r'^Castilla y León.*',  # Castile and Leon section
+            r'^Cataluña.*',  # Catalonia section
+            r'^C\. Valenciana.*',  # Valencia section
+            r'^Galicia.*',  # Galicia section
+            r'^Navarra.*',  # Navarre section
+            r'^País Vasco.*',  # Basque Country section
+            r'^Toledo.*',  # Toledo section
+            r'^Internacional.*',  # International section
+            r'^Declaración Renta.*',  # Tax declaration section
+            r'^Inmobiliario.*',  # Real estate section
+            r'^Blogs.*',  # Blogs section
+            r'^Fe De Ratas.*',  # Fe de Ratas section
+            r'^El Astrolabio.*',  # El Astrolabio section
+            r'^El Sacapuntas.*',  # El Sacapuntas section
+            r'^Real Madrid.*',  # Real Madrid section
+            r'^Atlético de Madrid.*',  # Atletico Madrid section
+            r'^Fútbol.*',  # Football section
+            r'^Baloncesto.*',  # Basketball section
+            r'^Tenis.*',  # Tennis section
+            r'^Fórmula 1.*',  # Formula 1 section
+            r'^Motos.*',  # Motorcycles section
+            r'^Náutica.*',  # Sailing section
+            r'^Ciclismo.*',  # Cycling section
+            r'^Torneo ACBNext.*',  # ACB Next tournament section
+            r'^Ciencia.*',  # Science section
+            r'^Salud.*',  # Health section
+            r'^Es Noticia$',  # It's News
+            r'^Castor.*',  # Castor news
+            r'^Presupuestos Generales.*',  # General Budget news
+            r'^Elecciones Francia.*',  # French elections news
+            r'^Cita Previa.*',  # Tax appointment news
+            r'^Regalos Día de la Madre.*',  # Mother's Day gifts news
+            r'^Venezuela.*',  # Venezuela news
+            r'^La Casa de Papel.*',  # Money Heist news
+            r'^YouTube.*',  # YouTube news
+            r'^Brexit.*',  # Brexit news
+            r'^Identifíquese$',  # Identify yourself
+            r'^Acceda a ClubABC.*',  # Access ClubABC
+            r'^Entre$',  # Enter
+            r'^¿Ha olvidado su contraseña\?$',  # Forgot password
+            r'^Regístrese$',  # Register
+            r'^Únase a ClubABC.*',  # Join ClubABC
+            r'^Regístrese ahora$',  # Register now
+            r'^Síguenos en$',  # Follow us
+            r'^_ABC\.es_$',  # ABC.es header
+        ]
+        
         content_lines = [line.strip() for line in content.split('\n') if line.strip()]
         meaningful_lines = 0
+        web_clutter_lines = 0
         
         for line in content_lines:
-            if not any(re.match(pattern, line, re.IGNORECASE) for pattern in empty_patterns):
+            # Check if line contains web clutter
+            if any(re.match(pattern, line, re.IGNORECASE) for pattern in web_clutter_patterns):
+                web_clutter_lines += 1
+            elif not any(re.match(pattern, line, re.IGNORECASE) for pattern in empty_patterns):
                 meaningful_lines += 1
         
-        # At least half the lines should be meaningful
-        return meaningful_lines >= max(1, len(content_lines) * 0.5)
+        # Calculate clutter ratio
+        total_lines = meaningful_lines + web_clutter_lines
+        if total_lines == 0:
+            return False
+        
+        clutter_ratio = web_clutter_lines / total_lines
+        
+        # Reject if more than 60% is web clutter (more strict)
+        if clutter_ratio > 0.6:
+            return False
+        
+        # Must have at least 3 substantial content lines (more strict)
+        return meaningful_lines >= 3
     
     def _clean_malformed_urls(self, content: str) -> str:
         """Clean malformed URLs and broken links that cause processing issues.
