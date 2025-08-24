@@ -346,7 +346,7 @@ class ObsidianCurator:
                         if needs_triage:
                             # For now, apply standard curation logic but mark for triage
                             content_length = len(note.content) if note.content else 0
-                            suggested_decision = "keep" if self._should_curate(quality_scores, themes, content_length) else "discard"
+                            suggested_decision = "keep" if self._should_curate(quality_scores, themes, content_length, note.content_type) else "discard"
                             
                             # Create triage item
                             triage_item = self.triage_manager.create_triage_item(
@@ -365,7 +365,7 @@ class ObsidianCurator:
                         else:
                             # Standard curation decision
                             content_length = len(note.content) if note.content else 0
-                            is_curated = self._should_curate(quality_scores, themes, content_length)
+                            is_curated = self._should_curate(quality_scores, themes, content_length, note.content_type)
                             triage_info = None
                     
                     # Create curation result with enhanced metrics
@@ -451,25 +451,48 @@ class ObsidianCurator:
         
         return curation_results
     
-    def _should_curate(self, quality_scores, themes, content_length: int = 0) -> bool:
+    def _should_curate(self, quality_scores, themes, content_length: int = 0, content_type=None) -> bool:
         """Determine if a note should be curated based on scores and themes.
         
         Args:
             quality_scores: Quality assessment scores
             themes: Identified themes
             content_length: Length of cleaned content in characters
+            content_type: Content type for type-specific rules
             
         Returns:
             True if note should be curated
         """
         try:
+            # Get content-type specific rules
+            content_type_str = content_type.value if content_type and hasattr(content_type, 'value') else 'DEFAULT'
+            type_rules = None
+            
+            if hasattr(self.config, 'content_types'):
+                type_rules = getattr(self.config.content_types, content_type_str, None)
+                if not type_rules:
+                    type_rules = getattr(self.config.content_types, 'DEFAULT', None)
+            
+            # Use content-type specific thresholds if available
+            if type_rules and type_rules.thresholds:
+                quality_threshold = type_rules.thresholds.get('overall', self.config.quality_threshold)
+                relevance_threshold = type_rules.thresholds.get('relevance', self.config.relevance_threshold)
+                analytical_depth_threshold = type_rules.thresholds.get('analytical_depth', getattr(self.config, 'analytical_depth_threshold', 0.65))
+                min_content_length = type_rules.min_length
+            else:
+                # Fall back to global thresholds
+                quality_threshold = self.config.quality_threshold
+                relevance_threshold = self.config.relevance_threshold
+                analytical_depth_threshold = getattr(self.config, 'analytical_depth_threshold', 0.65)
+                min_content_length = getattr(self.config, 'min_content_length', 300)
+            
             # Enhanced quality thresholds for analytical content
-            meets_quality = quality_scores.overall >= self.config.quality_threshold
-            meets_relevance = quality_scores.relevance >= self.config.relevance_threshold
-            meets_analytical_depth = quality_scores.analytical_depth >= getattr(self.config, 'analytical_depth_threshold', 0.65)
+            meets_quality = quality_scores.overall >= quality_threshold
+            meets_relevance = quality_scores.relevance >= relevance_threshold
+            meets_analytical_depth = quality_scores.analytical_depth >= analytical_depth_threshold
             
             # Check minimum content length for usefulness
-            meets_length_requirement = content_length >= getattr(self.config, 'min_content_length', 300)
+            meets_length_requirement = content_length >= min_content_length
             
             # Professional writing quality assessment (higher standards)
             professional_writing_score = (
@@ -479,7 +502,11 @@ class ObsidianCurator:
                 quality_scores.argument_structure
             ) / 4.0
             
-            professional_threshold = getattr(self.config, 'professional_writing_threshold', 0.65)
+            # Use content-type specific professional writing threshold if available
+            if type_rules and type_rules.thresholds:
+                professional_threshold = type_rules.thresholds.get('professional_writing', getattr(self.config, 'professional_writing_threshold', 0.65))
+            else:
+                professional_threshold = getattr(self.config, 'professional_writing_threshold', 0.65)
             meets_professional = professional_writing_score >= professional_threshold
             
             # Theme relevance check
@@ -514,7 +541,7 @@ class ObsidianCurator:
             )
             
             # 4. Content length considerations
-            substantial_content = content_length >= self.config.min_content_length
+            substantial_content = content_length >= min_content_length
             
             # Decision logic: curate if any criteria met
             should_curate = False
@@ -537,9 +564,9 @@ class ObsidianCurator:
                 curation_reasons.append("Did not meet minimum quality or relevance criteria")
             
             # Detailed debug logging
-            logger.info(f"Curation decision details:")
+            logger.info(f"Curation decision details ({content_type_str}):")
             logger.info(f"  Quality scores: overall={quality_scores.overall:.2f}, relevance={quality_scores.relevance:.2f}")
-            logger.info(f"  Thresholds: quality={self.config.quality_threshold}, relevance={self.config.relevance_threshold}")
+            logger.info(f"  Thresholds: quality={quality_threshold}, relevance={relevance_threshold}, min_length={min_content_length}")
             logger.info(f"  Meets quality: {meets_quality}, meets relevance: {meets_relevance}")
             logger.info(f"  Themes: {len(themes)} found, relevant: {has_relevant_themes}")
             logger.info(f"  Content length: {content_length} chars")

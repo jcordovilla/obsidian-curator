@@ -210,6 +210,76 @@ class AIAnalyzer:
         
         return json_str
     
+    def _apply_content_type_weights(self, quality_scores: QualityScore, content_type) -> QualityScore:
+        """Apply content-type specific weights to quality scores.
+        
+        Args:
+            quality_scores: Original quality scores
+            content_type: Content type of the note
+            
+        Returns:
+            Weighted quality scores
+        """
+        try:
+            # Get content type rules
+            content_type_str = content_type.value if hasattr(content_type, 'value') else str(content_type)
+            
+            # Get rules for this content type, fallback to DEFAULT
+            type_rules = None
+            if hasattr(self.config, 'content_types'):
+                type_rules = getattr(self.config.content_types, content_type_str, None)
+                if not type_rules:
+                    type_rules = getattr(self.config.content_types, 'DEFAULT', None)
+            
+            if not type_rules or not type_rules.weights:
+                # No weights configured, return original scores
+                return quality_scores
+            
+            # Apply weights to create a new QualityScore object
+            scores_dict = quality_scores.dict()
+            
+            # Map weight names to score field names
+            weight_mapping = {
+                'professional_writing': 'professional_writing_score',  # Use property
+                'analytical_depth': 'analytical_depth',
+                'evidence_quality': 'evidence_quality',
+                'critical_thinking': 'critical_thinking',
+                'argument_structure': 'argument_structure',
+                'practical_value': 'practical_value',
+                'overall': 'overall',
+                'relevance': 'relevance',
+                'completeness': 'completeness',
+                'credibility': 'credibility',
+                'clarity': 'clarity'
+            }
+            
+            # Apply weights
+            for weight_name, weight_value in type_rules.weights.items():
+                if weight_name in weight_mapping:
+                    score_field = weight_mapping[weight_name]
+                    if score_field in scores_dict:
+                        # Apply weight but keep scores in 0-1 range
+                        weighted_score = scores_dict[score_field] * weight_value
+                        scores_dict[score_field] = min(1.0, weighted_score)
+            
+            # Recalculate overall score if other scores were weighted
+            if any(w in weight_mapping for w in type_rules.weights.keys() if w != 'overall'):
+                # Simple average of core metrics
+                core_scores = [
+                    scores_dict.get('relevance', 0.5),
+                    scores_dict.get('completeness', 0.5),
+                    scores_dict.get('credibility', 0.5),
+                    scores_dict.get('clarity', 0.5)
+                ]
+                scores_dict['overall'] = sum(core_scores) / len(core_scores)
+            
+            # Create new QualityScore object
+            return QualityScore(**scores_dict)
+            
+        except Exception as e:
+            logger.warning(f"Failed to apply content-type weights: {e}")
+            return quality_scores
+    
     def _analyze_quality_with_routing(self, note: Note) -> Tuple[QualityScore, Dict[str, Any]]:
         """Analyze quality using routing cascade with escalation.
         
@@ -311,7 +381,9 @@ class AIAnalyzer:
         self.model = model
         
         try:
-            return self._ai_analyze_quality(note, content)
+            quality_scores = self._ai_analyze_quality(note, content)
+            # Apply content-type specific weights
+            return self._apply_content_type_weights(quality_scores, note.content_type)
         finally:
             # Restore original model
             self.model = original_model
@@ -436,14 +508,18 @@ class AIAnalyzer:
         try:
             logger.debug(f"Attempting AI quality analysis for note: {note.title}")
             ai_result = self._ai_analyze_quality(note, content)
-            logger.debug(f"AI quality analysis SUCCESS: overall={ai_result.overall}, relevance={ai_result.relevance}")
-            return ai_result
+            # Apply content-type specific weights
+            weighted_result = self._apply_content_type_weights(ai_result, note.content_type)
+            logger.debug(f"AI quality analysis SUCCESS: overall={weighted_result.overall}, relevance={weighted_result.relevance}")
+            return weighted_result
         except Exception as e:
             logger.warning(f"AI quality analysis failed for note '{note.title}', using heuristic fallback: {e}")
             logger.debug(f"Content preview: {content[:200]}...")
             heuristic_result = self._heuristic_quality_analysis(note, content)
-            logger.debug(f"Heuristic quality analysis: overall={heuristic_result.overall}, relevance={heuristic_result.relevance}")
-            return heuristic_result
+            # Apply content-type specific weights
+            weighted_heuristic = self._apply_content_type_weights(heuristic_result, note.content_type)
+            logger.debug(f"Heuristic quality analysis: overall={weighted_heuristic.overall}, relevance={weighted_heuristic.relevance}")
+            return weighted_heuristic
     
     def _ai_analyze_quality(self, note: Note, content: str) -> QualityScore:
         """Use AI to analyze content quality."""

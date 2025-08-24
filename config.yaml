@@ -41,6 +41,47 @@ relevance_threshold: 0.65  # Minimum relevance score for curation (maintained fo
 analytical_depth_threshold: 0.65  # Minimum analytical depth for publication-ready content
 professional_writing_threshold: 0.65  # Minimum professional writing score for curation (lowered from 0.70)
 
+# Content-Type Specific Rules
+content_types:
+  PERSONAL_NOTE:
+    min_length: 200
+    weights: 
+      professional_writing: 1.2
+      clarity: 1.1
+    thresholds: 
+      overall: 0.66
+      relevance: 0.65
+  WEB_CLIPPING:
+    min_length: 500
+    weights: 
+      credibility: 1.2
+      evidence_quality: 1.2
+    thresholds: 
+      overall: 0.70
+      relevance: 0.67
+  ACADEMIC_PAPER:
+    min_length: 400
+    weights: 
+      analytical_depth: 1.2
+      synthesis_ability: 1.1
+    thresholds: 
+      overall: 0.68
+      relevance: 0.66
+  PROFESSIONAL_PUBLICATION:
+    min_length: 300
+    weights:
+      professional_writing: 1.3
+      analytical_depth: 1.2
+    thresholds:
+      overall: 0.72
+      relevance: 0.70
+  DEFAULT:
+    min_length: 300
+    weights: {}
+    thresholds: 
+      overall: 0.65
+      relevance: 0.65
+
 # Content Processing
 min_content_length: 300   # Minimum content length (characters) for useful notes (lowered for valuable short notes)
 max_tokens: 2000          # Maximum tokens for AI analysis

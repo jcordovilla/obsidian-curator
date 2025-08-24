@@ -242,6 +242,26 @@ class TriageConfig(BaseModel):
     auto_escalate_model: Optional[str] = Field(None, description="Model to re-score with before triage")
 
 
+class ContentTypeRules(BaseModel):
+    """Rules for a specific content type."""
+    min_length: int = Field(default=300, description="Minimum content length for this type")
+    weights: Dict[str, float] = Field(default_factory=dict, description="Score weights for this content type")
+    thresholds: Dict[str, float] = Field(default_factory=dict, description="Quality thresholds for this content type")
+
+
+class ContentTypesConfig(BaseModel):
+    """Configuration for content-type specific rules."""
+    PERSONAL_NOTE: ContentTypeRules = Field(default_factory=ContentTypeRules)
+    WEB_CLIPPING: ContentTypeRules = Field(default_factory=ContentTypeRules)
+    ACADEMIC_PAPER: ContentTypeRules = Field(default_factory=ContentTypeRules)
+    PROFESSIONAL_PUBLICATION: ContentTypeRules = Field(default_factory=ContentTypeRules)
+    PDF_ANNOTATION: ContentTypeRules = Field(default_factory=ContentTypeRules)
+    IMAGE_ANNOTATION: ContentTypeRules = Field(default_factory=ContentTypeRules)
+    AUDIO_ANNOTATION: ContentTypeRules = Field(default_factory=ContentTypeRules)
+    URL_REFERENCE: ContentTypeRules = Field(default_factory=ContentTypeRules)
+    DEFAULT: ContentTypeRules = Field(default_factory=ContentTypeRules)
+
+
 class TaskModels(BaseModel):
     """Task-specific model configuration for optimized performance."""
     
@@ -258,6 +278,7 @@ class CurationConfig(BaseModel):
     models: TaskModels = Field(default_factory=TaskModels, description="Task-specific model configuration")
     routing: RoutingConfig = Field(default_factory=RoutingConfig, description="Model routing configuration")
     triage: TriageConfig = Field(default_factory=TriageConfig, description="Borderline triage configuration")
+    content_types: ContentTypesConfig = Field(default_factory=ContentTypesConfig, description="Content-type specific rules")
     reasoning_level: str = Field(default="low", description="AI reasoning level: low, medium, high")
     
     @validator('reasoning_level')
