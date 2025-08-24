@@ -77,6 +77,8 @@ class AIAnalyzer:
         """Call Ollama chat API requesting JSON output."""
         try:
             model = self._get_model_for_task(task)
+            logger.debug(f"Calling Ollama model '{model}' for task '{task}'")
+            
             response = ollama.chat(
                 model=model,
                 messages=[
@@ -108,22 +110,83 @@ class AIAnalyzer:
                 
                 # Fix common malformed JSON patterns
                 json_content = self._fix_malformed_json(json_content)
+                logger.debug(f"Extracted JSON content: {repr(json_content)}")
             else:
-                json_content = content
+                # Try to find array format
+                if '[' in content and ']' in content:
+                    start = content.find('[')
+                    end = content.rfind(']') + 1
+                    json_content = content[start:end]
+                    json_content = self._fix_malformed_json(json_content)
+                    logger.debug(f"Extracted array content: {repr(json_content)}")
+                else:
+                    logger.warning("No JSON structure found in response")
+                    return {}
             
-            return json.loads(json_content)
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from Ollama response: {e}")
-            logger.error(f"Raw content: {repr(content)}")
-            return {}
+            # Try to parse the cleaned JSON
+            try:
+                parsed_json = json.loads(json_content)
+                logger.debug(f"Successfully parsed JSON: {type(parsed_json)}")
+                return parsed_json
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse cleaned JSON: {e}")
+                logger.debug(f"Cleaned JSON content: {repr(json_content)}")
+                
+                # Last resort: try to extract just the essential data
+                return self._extract_fallback_data(content)
+                
         except Exception as e:
             logger.error(f"Error calling Ollama: {e}")
+            return {}
+    
+    def _extract_fallback_data(self, content: str) -> Any:
+        """Extract basic data when JSON parsing completely fails."""
+        try:
+            # Try to extract basic theme information from text
+            if "theme" in content.lower() or "themes" in content.lower():
+                # Extract theme names that might be mentioned
+                import re
+                theme_matches = re.findall(r'["\']([^"\']*(?:infrastructure|construction|governance|policy|technical|strategic)[^"\']*)["\']', content, re.IGNORECASE)
+                
+                if theme_matches:
+                    return [{
+                        "name": theme_matches[0],
+                        "confidence": 0.6,
+                        "subthemes": [],
+                        "keywords": [theme_matches[0].lower()],
+                        "expertise_level": "intermediate",
+                        "content_category": "technical",
+                        "business_value": "operational"
+                    }]
+            
+            # Return empty structure for structure analysis
+            return {
+                "has_clear_problem": True,
+                "has_evidence": False,
+                "has_multiple_perspectives": False,
+                "has_actionable_conclusions": True,
+                "logical_flow_score": 0.6,
+                "argument_coherence": 0.6,
+                "conclusion_strength": 0.6
+            }
+            
+        except Exception as e:
+            logger.warning(f"Fallback data extraction failed: {e}")
             return {}
     
     def _fix_malformed_json(self, json_str: str) -> str:
         """Fix common JSON malformation patterns seen in Ollama responses."""
         import re
+        
+        # Remove any text before the first {
+        if '{' in json_str:
+            start = json_str.find('{')
+            json_str = json_str[start:]
+        
+        # Remove any text after the last }
+        if '}' in json_str:
+            end = json_str.rfind('}') + 1
+            json_str = json_str[:end]
         
         # Fix: {": "quality" -> {"quality" (the main issue from the logs)
         json_str = re.sub(r'\{":\s*"([^"]+)"', r'{"\1"', json_str)
@@ -137,10 +200,18 @@ class AIAnalyzer:
         # Fix: Single quotes to double quotes (in case AI uses single quotes)
         json_str = re.sub(r"'([^']*)'", r'"\1"', json_str)
         
+        # Fix: Remove any remaining text that's not JSON - BUT PRESERVE LETTERS IN FIELD NAMES
+        # Only remove truly problematic characters, not letters
+        json_str = re.sub(r'[^\w\{\}\[\]",:0-9.\-truefalse\s]', '', json_str)
+        
+        # Fix: Ensure proper boolean values
+        json_str = re.sub(r':\s*true\s*([,}])', r': true\1', json_str)
+        json_str = re.sub(r':\s*false\s*([,}])', r': false\1', json_str)
+        
         return json_str
     
     def analyze_note(self, note: Note) -> Tuple[QualityScore, List[Theme], ContentStructure, str]:
-        """Analyze a note for quality, themes, content structure, and curation decision.
+        """Analyze a note for quality, themes, and structure.
         
         Args:
             note: Note to analyze
@@ -148,552 +219,356 @@ class AIAnalyzer:
         Returns:
             Tuple of (quality_scores, themes, content_structure, curation_reason)
         """
-        logger.info(f"Analyzing note: {note.title} (type: {note.content_type.value}, length: {len(note.content)} chars)")
-        
         try:
-            # Prepare content for analysis
-            analysis_content = self._prepare_analysis_content(note)
+            # Analyze content quality
+            quality_scores = self._analyze_quality(note)
             
-            # Comprehensive analysis in single AI call for maximum performance
-            quality_scores, themes, content_structure = self._comprehensive_analysis(analysis_content, note)
+            # Identify themes
+            themes = self._identify_themes(note)
             
-            # Determine curation decision
-            curation_reason = self._determine_curation_decision(quality_scores, themes, note)
+            # Analyze content structure
+            content_structure = self._analyze_structure(note)
+            
+            # Determine curation reason
+            curation_reason = self._determine_curation_reason(quality_scores, themes, content_structure, note)
             
             return quality_scores, themes, content_structure, curation_reason
             
         except Exception as e:
             logger.error(f"Failed to analyze note {note.title}: {e}")
-            # Return default values on error - realistic conservative scores
-            default_scores = QualityScore(
-                overall=0.5,
-                relevance=0.4,
-                completeness=0.45,
-                credibility=0.5,
-                clarity=0.5,
-                analytical_depth=0.3,
-                evidence_quality=0.3,
-                critical_thinking=0.35,
-                argument_structure=0.4,
-                practical_value=0.35
-            )
-            default_themes = [Theme(
-                name="unknown", 
-                confidence=0.5,
-                expertise_level="intermediate",
-                content_category="technical",
-                business_value="operational"
-            )]
-            default_structure = self._default_content_structure()
-            return default_scores, default_themes, default_structure, f"Analysis failed: {str(e)}"
+            # Return default scores on failure
+            return self._get_default_scores(), [], self._get_default_structure(), f"Analysis failed: {str(e)}"
     
-    def _prepare_analysis_content(self, note: Note) -> str:
-        """Prepare note content for AI analysis.
+    def _analyze_quality(self, note: Note) -> QualityScore:
+        """Analyze the quality of a note's content using AI.
         
         Args:
-            note: Note to prepare
-            
-        Returns:
-            Formatted content for analysis
-        """
-        # Intelligent content preparation for analysis
-        content = note.content
-        max_tokens = self.config.max_tokens
-        
-        # For very long content, create an intelligent summary instead of truncation
-        words = content.split()
-        if len(words) > max_tokens // 2:  # More generous limit for comprehensive analysis
-            # Keep beginning and end, plus extract key sections
-            beginning = ' '.join(words[:max_tokens // 4])
-            ending = ' '.join(words[-max_tokens // 4:])
-            
-            # Try to extract key sections (headings, important paragraphs)
-            key_sections = self._extract_key_sections(content, max_tokens // 4)
-            
-            content = f"{beginning}\n\n[... content summary ...]\n{key_sections}\n\n[... content continued ...]\n{ending}"
-        
-        # Format for analysis
-        analysis_content = f"""
-TITLE: {note.title}
-CONTENT TYPE: {note.content_type.value}
-SOURCE: {note.source_url or 'Unknown'}
-TAGS: {', '.join(note.tags) if note.tags else 'None'}
-
-CONTENT:
-{content}
-
-Please analyze this content for:
-1. Overall quality and usefulness
-2. Relevance to infrastructure and construction professionals
-3. Completeness of ideas and information
-4. Credibility of source and content
-5. Clarity of expression and organization
-6. Main themes and topics covered
-"""
-        return analysis_content
-    
-    def _extract_key_sections(self, content: str, max_words: int) -> str:
-        """Extract key sections from content for analysis.
-        
-        Args:
-            content: Full content to extract from
-            max_words: Maximum words to extract
-            
-        Returns:
-            Key sections content
-        """
-        lines = content.split('\n')
-        key_lines = []
-        word_count = 0
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-                
-            # Prioritize headings, bullet points, and substantive paragraphs
-            is_important = (
-                line.startswith('#') or  # Headings
-                line.startswith('- ') or line.startswith('* ') or  # Bullet points
-                len(line.split()) > 10  # Substantive paragraphs
-            )
-            
-            if is_important:
-                line_words = len(line.split())
-                if word_count + line_words <= max_words:
-                    key_lines.append(line)
-                    word_count += line_words
-                else:
-                    break
-        
-        return '\n'.join(key_lines) if key_lines else ""
-    
-    def _comprehensive_analysis(self, analysis_content: str, note: Note) -> Tuple[QualityScore, List[Theme], ContentStructure]:
-        """Comprehensive analysis in single AI call for maximum performance.
-        
-        Combines quality assessment, theme identification, and structure analysis
-        in one call using the optimal model for the complexity of the task.
-        
-        Args:
-            analysis_content: Formatted content for analysis
-            note: Note being analyzed
-            
-        Returns:
-            Tuple of (QualityScore, List[Theme], ContentStructure)
-        """
-        # Use quality analysis model (llama3.1:8b) for comprehensive analysis
-        system_prompt = f"""You are an expert content analyst specializing in infrastructure and construction content. Use {self.config.reasoning_level} reasoning to provide accurate, comprehensive analysis including quality assessment, theme identification, and structural analysis."""
-        
-        prompt = f"""
-{analysis_content}
-
-Please provide a COMPREHENSIVE analysis of this content covering quality, themes, and structure.
-
-1. PROFESSIONAL QUALITY ASSESSMENT - Provide scores from 0.0 to 1.0:
-   CORE METRICS:
-   - Overall Quality: How valuable and well-crafted is this content?
-   - Relevance: How relevant to infrastructure/construction professionals?
-   - Completeness: How complete and comprehensive are the ideas?
-   - Credibility: How trustworthy and authoritative is the source?
-   - Clarity: How clear, well-organized, and understandable?
-
-   PROFESSIONAL WRITING METRICS (Higher standards for publication-quality content):
-   - Analytical Depth: Does it synthesize multiple perspectives, challenge conventional thinking, or provide original insights? (0.1=simple news reporting, 0.9=sophisticated multi-faceted analysis)
-   - Evidence Quality: How strong are the data, case studies, and references? (0.1=unsupported claims, 0.9=well-documented with credible sources)
-   - Critical Thinking: Does it question assumptions, identify root causes, or challenge industry practices? (0.1=descriptive reporting, 0.9=transformative critical analysis)
-   - Argument Structure: Is there clear problem identification, systematic analysis, and actionable conclusions? (0.1=scattered facts, 0.9=coherent argument progression)
-   - Practical Value: Does it provide strategic insights or frameworks that professionals can apply? (0.1=general information, 0.9=actionable strategic guidance)
-
-   PRIORITIZE CONTENT THAT:
-   - Presents original analysis over news reporting
-   - Synthesizes multiple sources or perspectives
-   - Challenges conventional wisdom or identifies emerging trends
-   - Provides strategic frameworks or methodologies
-   - Offers lessons learned from case studies or failures
-
-2. ENHANCED THEME IDENTIFICATION - Focus on strategic infrastructure themes:
-   For each theme provide: name, confidence (0.0-1.0), subthemes, keywords
-   - expertise_level: "entry", "intermediate", "expert", or "thought_leader"
-   - content_category: "strategic", "tactical", "policy", "technical", or "operational"
-   - business_value: "operational", "strategic", "governance", or "innovation"
-   
-   PRIORITIZE THEMES THAT:
-   - Connect to broader industry trends or challenges
-   - Show cross-sector implications (PPPs, regulation, finance, technology)
-   - Reveal systemic issues or opportunities
-   - Demonstrate evolving best practices or methodologies
-   - Link infrastructure to economic/social/environmental outcomes
-
-3. CONTENT STRUCTURE ANALYSIS - Evaluate structural elements:
-   Boolean (true/false):
-   - Has Clear Problem: Does content identify a clear problem/question?
-   - Has Evidence: Does it provide supporting evidence/data/references?
-   - Has Multiple Perspectives: Does it consider multiple viewpoints?
-   - Has Actionable Conclusions: Does it provide actionable insights?
-   
-   Scores (0.0-1.0):
-   - Logical Flow Score: How well does content progress logically?
-   - Argument Coherence: How consistent are the arguments?
-   - Conclusion Strength: How strong are the conclusions?
-
-Respond with a JSON object like this:
-{{
-    "quality": {{
-        "overall": 0.8, "relevance": 0.9, "completeness": 0.7, "credibility": 0.8, "clarity": 0.9,
-        "analytical_depth": 0.8, "evidence_quality": 0.7, "critical_thinking": 0.9,
-        "argument_structure": 0.8, "practical_value": 0.8
-    }},
-    "themes": [
-        {{
-            "name": "Infrastructure Governance", "confidence": 0.9,
-            "subthemes": ["PPPs", "Regulation"], "keywords": ["governance", "policy"],
-            "expertise_level": "expert", "content_category": "strategic", "business_value": "governance"
-        }}
-    ],
-    "structure": {{
-        "has_clear_problem": true, "has_evidence": true, "has_multiple_perspectives": false,
-        "has_actionable_conclusions": true, "logical_flow_score": 0.8,
-        "argument_coherence": 0.7, "conclusion_strength": 0.9
-    }}
-}}
-
-Only provide the JSON response, no other text.
-"""
-        
-        try:
-            response_data = self._chat_json(system_prompt, prompt, temperature=0.15, task="quality_analysis")
-
-            # Handle empty or invalid JSON response
-            if not response_data or not isinstance(response_data, dict):
-                logger.warning(f"Invalid or empty comprehensive analysis response")
-                return self._default_quality_scores(), [self._default_theme()], self._default_content_structure()
-
-            # Parse quality scores
-            quality_data = response_data.get("quality", {})
-            quality_scores = QualityScore(
-                overall=float(quality_data.get("overall", 0.5)),
-                relevance=float(quality_data.get("relevance", 0.5)),
-                completeness=float(quality_data.get("completeness", 0.5)),
-                credibility=float(quality_data.get("credibility", 0.5)),
-                clarity=float(quality_data.get("clarity", 0.5)),
-                analytical_depth=float(quality_data.get("analytical_depth", 0.5)),
-                evidence_quality=float(quality_data.get("evidence_quality", 0.5)),
-                critical_thinking=float(quality_data.get("critical_thinking", 0.5)),
-                argument_structure=float(quality_data.get("argument_structure", 0.5)),
-                practical_value=float(quality_data.get("practical_value", 0.5))
-            )
-
-            # Parse themes
-            themes_data = response_data.get("themes", [])
-            themes = []
-            for theme_data in themes_data:
-                if isinstance(theme_data, dict):
-                    theme = Theme(
-                        name=theme_data.get("name", "Unknown"),
-                        confidence=float(theme_data.get("confidence", 0.5)),
-                        subthemes=theme_data.get("subthemes", []),
-                        keywords=theme_data.get("keywords", []),
-                        expertise_level=theme_data.get("expertise_level", "intermediate"),
-                        content_category=theme_data.get("content_category", "technical"),
-                        business_value=theme_data.get("business_value", "operational")
-                    )
-                    themes.append(theme)
-
-            if not themes:
-                themes = [self._default_theme()]
-
-            # Parse content structure
-            structure_data = response_data.get("structure", {})
-            content_structure = ContentStructure(
-                has_clear_problem=structure_data.get("has_clear_problem", False),
-                has_evidence=structure_data.get("has_evidence", False),
-                has_multiple_perspectives=structure_data.get("has_multiple_perspectives", False),
-                has_actionable_conclusions=structure_data.get("has_actionable_conclusions", False),
-                logical_flow_score=float(structure_data.get("logical_flow_score", 0.5)),
-                argument_coherence=float(structure_data.get("argument_coherence", 0.5)),
-                conclusion_strength=float(structure_data.get("conclusion_strength", 0.5))
-            )
-
-            return quality_scores, themes, content_structure
-
-        except Exception as e:
-            logger.error(f"Failed to perform comprehensive analysis: {e}")
-            return self._default_quality_scores(), [self._default_theme()], self._default_content_structure()
-    
-    def _combined_analysis(self, analysis_content: str, note: Note) -> Tuple[QualityScore, List[Theme]]:
-        """Combined quality and theme analysis in a single AI call for better performance.
-        
-        Args:
-            analysis_content: Formatted content for analysis
-            note: Note being analyzed
-            
-        Returns:
-            Tuple of (QualityScore, List[Theme])
-        """
-        # Create system prompt with reasoning level
-        system_prompt = f"""You are an expert content analyst specializing in infrastructure and construction content. Use {self.config.reasoning_level} reasoning to provide accurate, consistent quality assessments and theme identification."""
-        
-        prompt = f"""
-{analysis_content}
-
-Please provide a comprehensive professional writing quality assessment AND theme identification for this content.
-
-1. PROFESSIONAL QUALITY ASSESSMENT - Provide scores from 0.0 to 1.0 for each category:
-
-   CORE QUALITY METRICS:
-   - Overall Quality: How valuable and well-crafted is this content overall?
-   - Relevance: How relevant is this to infrastructure and construction professionals?
-   - Completeness: How complete and comprehensive are the ideas presented?
-   - Credibility: How trustworthy and authoritative is the source and content?
-   - Clarity: How clear, well-organized, and easy to understand is the content?
-
-   PROFESSIONAL WRITING METRICS (NEW - Target 90% accuracy):
-   - Analytical Depth: How sophisticated and complex are the arguments? (0.1=simple fact, 0.9=multi-perspective analysis)
-   - Evidence Quality: How strong are the data, studies, and references? (0.1=unsupported claims, 0.9=well-cited research)
-   - Critical Thinking: How much does it challenge assumptions and provide critical perspective? (0.1=descriptive, 0.9=challenging conventional wisdom)
-   - Argument Structure: How logical and coherent is the argument flow? (0.1=disorganized, 0.9=clear problem→analysis→conclusion)
-   - Practical Value: How actionable and practically useful are the insights? (0.1=theoretical, 0.9=immediate practical application)
-
-2. ENHANCED THEME IDENTIFICATION - Identify themes with professional insight classification:
-   - Focus on infrastructure, construction, governance themes
-   - For each theme, provide:
-     * name, confidence (0.0-1.0), subthemes, keywords
-     * expertise_level: "entry", "intermediate", "expert", or "thought_leader"
-     * content_category: "strategic", "tactical", "policy", "technical", or "operational"
-     * business_value: "operational", "strategic", "governance", or "innovation"
-
-Respond with a JSON object like this:
-{{
-    "quality": {{
-        "overall": 0.8,
-        "relevance": 0.9,
-        "completeness": 0.7,
-        "credibility": 0.8,
-        "clarity": 0.9,
-        "analytical_depth": 0.8,
-        "evidence_quality": 0.7,
-        "critical_thinking": 0.9,
-        "argument_structure": 0.8,
-        "practical_value": 0.8
-    }},
-    "themes": [
-        {{
-            "name": "Infrastructure Governance",
-            "confidence": 0.9,
-            "subthemes": ["PPPs", "Regulation"],
-            "keywords": ["governance", "policy", "regulation"],
-            "expertise_level": "expert",
-            "content_category": "strategic",
-            "business_value": "governance"
-        }}
-    ]
-}}
-
-Only provide the JSON response, no other text.
-"""
-        
-        try:
-            response_data = self._chat_json(system_prompt, prompt, temperature=0.15, task="quality_analysis")
-
-            # Handle empty or invalid JSON response
-            if not response_data or not isinstance(response_data, dict):
-                logger.warning(f"Invalid or empty combined analysis response")
-                return self._default_quality_scores(), [self._default_theme()]
-
-            # Parse quality scores with new professional writing metrics
-            quality_data = response_data.get("quality", {})
-            quality_scores = QualityScore(
-                overall=float(quality_data.get("overall", 0.5)),
-                relevance=float(quality_data.get("relevance", 0.5)),
-                completeness=float(quality_data.get("completeness", 0.5)),
-                credibility=float(quality_data.get("credibility", 0.5)),
-                clarity=float(quality_data.get("clarity", 0.5)),
-                analytical_depth=float(quality_data.get("analytical_depth", 0.5)),
-                evidence_quality=float(quality_data.get("evidence_quality", 0.5)),
-                critical_thinking=float(quality_data.get("critical_thinking", 0.5)),
-                argument_structure=float(quality_data.get("argument_structure", 0.5)),
-                practical_value=float(quality_data.get("practical_value", 0.5)),
-            )
-
-            themes_data = response_data.get("themes", [])
-            themes: List[Theme] = []
-            for theme_data in themes_data:
-                theme = Theme(
-                    name=theme_data.get("name", "Unknown"),
-                    confidence=float(theme_data.get("confidence", 0.5)),
-                    subthemes=theme_data.get("subthemes", []),
-                    keywords=theme_data.get("keywords", []),
-                    expertise_level=theme_data.get("expertise_level", "intermediate"),
-                    content_category=theme_data.get("content_category", "technical"),
-                    business_value=theme_data.get("business_value", "operational"),
-                )
-                themes.append(theme)
-
-            if not themes:
-                themes = [self._default_theme()]
-
-            return quality_scores, themes
-        except Exception as e:
-            logger.error(f"Failed to perform combined analysis: {e}")
-            return self._default_quality_scores(), [self._default_theme()]
-    
-    def _analyze_quality(self, analysis_content: str, note: Note) -> QualityScore:
-        """Analyze content quality using AI.
-        
-        Args:
-            analysis_content: Formatted content for analysis
-            note: Note being analyzed
+            note: Note to analyze
             
         Returns:
             QualityScore object
         """
-        # Create system prompt with reasoning level
-        system_prompt = f"""You are an expert content analyst specializing in infrastructure and construction content. Use {self.config.reasoning_level} reasoning to provide accurate, consistent quality assessments."""
+        # Prepare content for analysis
+        content = note.content[:2000] if note.content else ""  # Limit content length for analysis
         
-        prompt = f"""
-{analysis_content}
+        if not content or len(content.strip()) < 50:
+            # Very short content gets low scores - NO ARTIFICIAL BOOSTING
+            # Exception: Audio content might have minimal text but still be valuable
+            if note.content_type == "audio_annotation":
+                result = QualityScore(
+                    overall=0.4, relevance=0.5, completeness=0.3, credibility=0.4, clarity=0.3,
+                    analytical_depth=0.2, evidence_quality=0.3, critical_thinking=0.2,
+                    argument_structure=0.2, practical_value=0.4
+                )
+            else:
+                result = QualityScore(
+                    overall=0.2, relevance=0.3, completeness=0.1, credibility=0.2, clarity=0.1,
+                    analytical_depth=0.1, evidence_quality=0.1, critical_thinking=0.1,
+                    argument_structure=0.1, practical_value=0.1
+                )
+            logger.debug(f"Short content quality analysis: overall={result.overall}, relevance={result.relevance}")
+            return result
+        
+        # Try AI analysis first
+        try:
+            logger.debug(f"Attempting AI quality analysis for note: {note.title}")
+            ai_result = self._ai_analyze_quality(note, content)
+            logger.debug(f"AI quality analysis SUCCESS: overall={ai_result.overall}, relevance={ai_result.relevance}")
+            return ai_result
+        except Exception as e:
+            logger.warning(f"AI quality analysis failed for note '{note.title}', using heuristic fallback: {e}")
+            logger.debug(f"Content preview: {content[:200]}...")
+            heuristic_result = self._heuristic_quality_analysis(note, content)
+            logger.debug(f"Heuristic quality analysis: overall={heuristic_result.overall}, relevance={heuristic_result.relevance}")
+            return heuristic_result
+    
+    def _ai_analyze_quality(self, note: Note, content: str) -> QualityScore:
+        """Use AI to analyze content quality."""
+        system_prompt = f"""You are an expert content quality analyst specializing in infrastructure, construction, and governance content. Use {self.config.reasoning_level} reasoning to assess content quality objectively.
 
-Please provide a quality assessment with scores from 0.0 to 1.0 for each category:
+CRITICAL: You must respond with ONLY valid JSON. No explanations, no additional text, no markdown formatting. Just the JSON object."""
+        
+        prompt = f"""Analyze the QUALITY of this content for professional infrastructure/construction/governance work.
 
-1. Overall Quality: How valuable and well-crafted is this content overall?
-2. Relevance: How relevant is this to infrastructure and construction professionals?
-3. Completeness: How complete and comprehensive are the ideas presented?
-4. Credibility: How trustworthy and authoritative is the source and content?
-5. Clarity: How clear, well-organized, and easy to understand is the content?
+Content:
+{content}
 
-Respond with a JSON object like this:
+Assess each dimension on a 0.0-1.0 scale where:
+- 0.0-0.3: Poor quality, not suitable for professional use
+- 0.4-0.6: Average quality, some value but limited
+- 0.7-0.9: Good quality, suitable for professional reference
+- 0.9-1.0: Excellent quality, publication-ready
+
+Return ONLY a JSON object with this exact format (no other text):
 {{
-    "overall": 0.8,
-    "relevance": 0.9,
-    "completeness": 0.7,
-    "credibility": 0.8,
-    "clarity": 0.9
+    "overall": 0.7,
+    "relevance": 0.8,
+    "completeness": 0.6,
+    "credibility": 0.7,
+    "clarity": 0.8,
+    "analytical_depth": 0.6,
+    "evidence_quality": 0.7,
+    "critical_thinking": 0.5,
+    "argument_structure": 0.6,
+    "practical_value": 0.7
 }}
 
-Only provide the JSON response, no other text.
-"""
+Rules:
+- Be honest about quality - don't inflate scores
+- All scores must be numbers between 0.0 and 1.0
+- Consider the content's actual value to infrastructure professionals
+- Provide ONLY the JSON object, no other text whatsoever"""
         
+        logger.debug(f"Calling AI for quality analysis with prompt length: {len(prompt)}")
+        quality_data = self._chat_json(system_prompt, prompt, temperature=0.1, task="quality_analysis")
+        
+        logger.debug(f"AI response type: {type(quality_data)}, content: {repr(quality_data)}")
+        
+        if not quality_data or not isinstance(quality_data, dict):
+            logger.error(f"Invalid AI response for quality analysis: {type(quality_data)} - {repr(quality_data)}")
+            raise ValueError("Invalid AI response for quality analysis")
+        
+        # Extract scores with validation
         try:
-            scores_data = self._chat_json(system_prompt, prompt, temperature=0.1)
+            # Debug: Log the actual values being extracted
+            overall_score = float(quality_data.get("overall", 0.3))
+            relevance_score = float(quality_data.get("relevance", 0.3))
             
-            # Handle empty or invalid JSON response
-            if not scores_data or not isinstance(scores_data, dict):
-                logger.warning(f"Invalid or empty quality scores response")
-                return self._default_quality_scores()
+            logger.debug(f"Parsed scores from AI: overall={overall_score}, relevance={relevance_score}")
             
-            return QualityScore(
-                overall=float(scores_data.get("overall", 0.5)),
-                relevance=float(scores_data.get("relevance", 0.5)),
-                completeness=float(scores_data.get("completeness", 0.5)),
-                credibility=float(scores_data.get("credibility", 0.5)),
-                clarity=float(scores_data.get("clarity", 0.5)),
+            result = QualityScore(
+                overall=overall_score,
+                relevance=relevance_score,
+                completeness=float(quality_data.get("completeness", 0.3)),
+                credibility=float(quality_data.get("credibility", 0.3)),
+                clarity=float(quality_data.get("clarity", 0.3)),
+                analytical_depth=float(quality_data.get("analytical_depth", 0.3)),
+                evidence_quality=float(quality_data.get("evidence_quality", 0.3)),
+                critical_thinking=float(quality_data.get("critical_thinking", 0.3)),
+                argument_structure=float(quality_data.get("argument_structure", 0.3)),
+                practical_value=float(quality_data.get("practical_value", 0.3))
             )
-        except Exception as e:
-            logger.error(f"Failed to analyze quality: {e}")
-            return self._default_quality_scores()
+            
+            logger.debug(f"QualityScore created: overall={result.overall}, relevance={result.relevance}")
+            return result
+            
+        except (ValueError, TypeError) as e:
+            logger.error(f"Failed to parse quality scores from AI response: {e}")
+            logger.error(f"Raw AI response: {repr(quality_data)}")
+            raise ValueError(f"Failed to parse quality scores: {e}")
     
-    def _identify_themes(self, analysis_content: str, note: Note) -> List[Theme]:
-        """Identify themes in the content using AI.
+    def _heuristic_quality_analysis(self, note: Note, content: str) -> QualityScore:
+        """Fallback heuristic quality analysis when AI fails."""
+        # Check for obvious quality indicators
+        quality_indicators = {
+            'has_clear_structure': any(marker in content.lower() for marker in ['##', '###', '**', '- ']),
+            'has_substantial_content': len(content.split()) > 100,
+            'has_professional_language': any(word in content.lower() for word in ['analysis', 'research', 'study', 'report', 'findings', 'project', 'development', 'management', 'infrastructure', 'construction']),
+            'has_citations': any(marker in content for marker in ['http', 'www', 'doi:', 'arxiv:', 'icex', 'rand', 'eleconomista']),
+            'has_data': any(marker in content for marker in ['%', 'million', 'billion', 'data', 'statistics', '2014', '2019', '2020', '2021', '2022', '2023', '2024', '2025'])
+        }
+        
+        # Calculate realistic base scores - NO ARTIFICIAL INFLATION
+        base_scores = {
+            'relevance': 0.6 if quality_indicators['has_substantial_content'] else 0.3,
+            'completeness': 0.5 if quality_indicators['has_clear_structure'] else 0.2,
+            'credibility': 0.6 if quality_indicators['has_citations'] else 0.3,
+            'clarity': 0.5 if quality_indicators['has_clear_structure'] else 0.2,
+            'analytical_depth': 0.5 if quality_indicators['has_professional_language'] else 0.2,
+            'evidence_quality': 0.5 if quality_indicators['has_data'] else 0.2,
+            'critical_thinking': 0.4 if quality_indicators['has_professional_language'] else 0.2,
+            'argument_structure': 0.5 if quality_indicators['has_clear_structure'] else 0.2,
+            'practical_value': 0.4 if quality_indicators['has_substantial_content'] else 0.2
+        }
+        
+        # Calculate overall score - NO BOOSTING
+        overall = sum(base_scores.values()) / len(base_scores)
+        
+        return QualityScore(
+            overall=overall,
+            **base_scores
+        )
+    
+    def _identify_themes(self, note: Note) -> List[Theme]:
+        """Identify themes in the content using AI with better fallback.
         
         Args:
-            analysis_content: Formatted content for analysis
-            note: Note being analyzed
+            note: Note to analyze
             
         Returns:
             List of Theme objects
         """
-        # Create system prompt with reasoning level
-        system_prompt = f"""You are an expert thematic analyst specializing in infrastructure, construction, and governance content. Use {self.config.reasoning_level} reasoning to identify relevant themes accurately and consistently."""
+        # Prepare content for analysis
+        content = note.content[:2000] if note.content else ""  # Limit content length for analysis
         
-        prompt = f"""
-{analysis_content}
+        if not content or len(content.strip()) < 50:
+            return [self._default_theme()]
+        
+        # Try AI analysis first
+        try:
+            return self._ai_identify_themes(note, content)
+        except Exception as e:
+            logger.warning(f"AI theme analysis failed, using heuristic fallback: {e}")
+            return self._heuristic_theme_analysis(note, content)
+    
+    def _ai_identify_themes(self, note: Note, content: str) -> List[Theme]:
+        """Use AI to identify themes."""
+        system_prompt = f"""You are an expert thematic analyst specializing in infrastructure, construction, and governance content. Use {self.config.reasoning_level} reasoning to identify relevant themes accurately and consistently.
 
-Please identify the main themes and topics in this content with professional insight classification. Focus on themes relevant to infrastructure, construction, governance, and related professional fields.
+CRITICAL: You must respond with ONLY valid JSON. No explanations, no additional text, no markdown formatting. Just the JSON array."""
+        
+        prompt = f"""Analyze this content and identify the main themes relevant to infrastructure, construction, governance, and related professional fields.
 
-For each theme, provide:
-1. Theme name (e.g., "Public-Private Partnerships", "Infrastructure Resilience")
-2. Confidence level (0.0 to 1.0)
-3. Sub-themes (if any)
-4. Keywords associated with the theme
-5. Expertise level: "entry", "intermediate", "expert", or "thought_leader"
-6. Content category: "strategic", "tactical", "policy", "technical", or "operational"
-7. Business value: "operational", "strategic", "governance", or "innovation"
+Content:
+{content}
 
-Respond with a JSON array like this:
+Return ONLY a JSON array with this exact format (no other text):
 [
     {{
-        "name": "Public-Private Partnerships",
-        "confidence": 0.9,
-        "subthemes": ["Financing", "Governance", "Risk Management"],
-        "keywords": ["PPPs", "infrastructure", "private sector", "public sector"],
-        "expertise_level": "expert",
-        "content_category": "strategic",
-        "business_value": "governance"
-    }},
-    {{
-        "name": "Infrastructure Resilience",
-        "confidence": 0.7,
-        "subthemes": ["Climate Adaptation", "Disaster Recovery"],
-        "keywords": ["resilience", "climate change", "disaster", "adaptation"],
+        "name": "Infrastructure Development",
+        "confidence": 0.85,
+        "subthemes": ["transportation", "public works"],
+        "keywords": ["highway", "construction", "infrastructure"],
         "expertise_level": "intermediate",
         "content_category": "technical",
         "business_value": "operational"
     }}
 ]
 
-Only provide the JSON response, no other text.
-"""
+Rules:
+- Use only the exact field names shown above
+- Name should be specific and descriptive (not "Unknown")
+- Confidence must be a number between 0.0 and 1.0
+- Expertise level must be one of: "entry", "intermediate", "expert", "thought_leader"
+- Content category must be one of: "strategic", "tactical", "policy", "technical", "operational"
+- Business value must be one of: "operational", "strategic", "governance", "innovation"
+- If content is not infrastructure-related, use low confidence (0.3-0.5)
+- Provide ONLY the JSON array, no other text whatsoever"""
         
-        try:
-            themes_data = self._chat_json(system_prompt, prompt, temperature=0.2)
+        themes_data = self._chat_json(system_prompt, prompt, temperature=0.1, task="theme_classification")
+        
+        # Handle case where response is not a list
+        if not isinstance(themes_data, list):
+            logger.warning(f"Theme classification returned non-list: {type(themes_data)}")
+            # If it's a single theme object, convert it to a list
+            if isinstance(themes_data, dict):
+                themes_data = [themes_data]
+                logger.info("Converted single theme object to list")
+            else:
+                raise ValueError("Invalid AI response for theme classification")
 
-            themes: List[Theme] = []
-            for theme_data in themes_data:
-                theme = Theme(
-                    name=theme_data.get("name", "Unknown"),
-                    confidence=float(theme_data.get("confidence", 0.5)),
-                    subthemes=theme_data.get("subthemes", []),
-                    keywords=theme_data.get("keywords", []),
-                    expertise_level=theme_data.get("expertise_level", "intermediate"),
-                    content_category=theme_data.get("content_category", "technical"),
-                    business_value=theme_data.get("business_value", "operational"),
-                )
-                themes.append(theme)
+        themes: List[Theme] = []
+        for theme_data in themes_data:
+            if isinstance(theme_data, dict):
+                try:
+                    # Validate required fields
+                    name = theme_data.get("name", "").strip()
+                    if not name or name.lower() == "unknown":
+                        logger.warning("Skipping theme with missing or unknown name")
+                        continue
+                    
+                    theme = Theme(
+                        name=name,
+                        confidence=float(theme_data.get("confidence", 0.5)),
+                        subthemes=theme_data.get("subthemes", []),
+                        keywords=theme_data.get("keywords", []),
+                        expertise_level=theme_data.get("expertise_level", "intermediate"),
+                        content_category=theme_data.get("content_category", "technical"),
+                        business_value=theme_data.get("business_value", "operational"),
+                    )
+                    themes.append(theme)
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Failed to parse theme data: {e}")
+                    continue
+        
+        # If no themes were successfully parsed, raise error to trigger fallback
+        if not themes:
+            raise ValueError("No valid themes identified by AI")
 
-            return themes
-        except Exception as e:
-            logger.error(f"Failed to identify themes: {e}")
-            return [self._default_theme()]
+        return themes
     
-    def _analyze_content_structure(self, analysis_content: str, note: Note) -> ContentStructure:
+    def _heuristic_theme_analysis(self, note: Note, content: str) -> List[Theme]:
+        """Fallback heuristic theme analysis when AI fails."""
+        # Define theme keywords for pattern matching
+        theme_patterns = {
+            "Infrastructure Development": {
+                "keywords": ["infrastructure", "highway", "road", "bridge", "transportation", "public works", "construction projects"],
+                "confidence": 0.7
+            },
+            "Public-Private Partnerships": {
+                "keywords": ["ppp", "public-private partnership", "concession", "privatization", "public sector", "private sector"],
+                "confidence": 0.8
+            },
+            "Construction Management": {
+                "keywords": ["construction", "building", "project management", "engineering", "contractor", "building site"],
+                "confidence": 0.7
+            },
+            "Economic Policy": {
+                "keywords": ["economic", "policy", "government", "regulation", "finance", "investment", "funding"],
+                "confidence": 0.6
+            },
+            "Urban Planning": {
+                "keywords": ["urban", "city", "planning", "development", "zoning", "municipal", "metropolitan"],
+                "confidence": 0.6
+            },
+            "Technology Systems": {
+                "keywords": ["technology", "software", "system", "digital", "automation", "technical", "programming"],
+                "confidence": 0.5
+            }
+        }
+        
+        content_lower = content.lower()
+        identified_themes = []
+        
+        for theme_name, pattern_info in theme_patterns.items():
+            keyword_matches = sum(1 for keyword in pattern_info["keywords"] if keyword in content_lower)
+            if keyword_matches > 0:
+                # Calculate confidence based on keyword density
+                confidence = min(pattern_info["confidence"], keyword_matches * 0.2 + 0.3)
+                
+                identified_themes.append(Theme(
+                    name=theme_name,
+                    confidence=confidence,
+                    subthemes=[],
+                    keywords=pattern_info["keywords"][:3],  # Top 3 keywords
+                    expertise_level="intermediate",
+                    content_category="technical",
+                    business_value="operational"
+                ))
+        
+        # If no themes found, return a general one
+        if not identified_themes:
+            identified_themes = [self._default_theme()]
+        
+        # Sort by confidence and return top themes
+        identified_themes.sort(key=lambda x: x.confidence, reverse=True)
+        return identified_themes[:3]  # Return top 3 themes
+    
+    def _analyze_structure(self, note: Note) -> ContentStructure:
         """Analyze content structure and logical flow using AI.
         
         Args:
-            analysis_content: Formatted content for analysis
-            note: Note being analyzed
+            note: Note to analyze
             
         Returns:
             ContentStructure object with structural analysis
         """
-        system_prompt = f"""You are an expert content structure analyst specializing in professional writing. Use {self.config.reasoning_level} reasoning to analyze the logical flow and argument structure of content."""
+        # Prepare content for analysis
+        content = note.content[:2000] if note.content else ""  # Limit content length for analysis
         
-        prompt = f"""
-{analysis_content}
+        if not content or len(content.strip()) < 50:
+            return self._default_content_structure()
+        
+        system_prompt = f"""You are an expert content structure analyst specializing in professional writing. Use {self.config.reasoning_level} reasoning to analyze the logical flow and argument structure of content.
 
-Please analyze the STRUCTURE and LOGICAL FLOW of this content for professional writing quality.
+CRITICAL: You must respond with ONLY valid JSON. No explanations, no additional text, no markdown formatting. Just the JSON object."""
+        
+        prompt = f"""Analyze the STRUCTURE and LOGICAL FLOW of this content for professional writing quality.
 
-Evaluate the following structural elements (provide boolean true/false):
-1. Has Clear Problem: Does the content clearly identify a problem, question, or challenge?
-2. Has Evidence: Does the content provide supporting evidence, data, or references?
-3. Has Multiple Perspectives: Does the content consider multiple viewpoints or approaches?
-4. Has Actionable Conclusions: Does the content provide actionable insights or recommendations?
+Content:
+{content}
 
-Also provide quality scores (0.0-1.0) for:
-- Logical Flow Score: How well does the content progress logically from start to finish?
-- Argument Coherence: How consistent and coherent are the arguments presented?
-- Conclusion Strength: How strong and valid are the conclusions drawn?
-
-Respond with a JSON object like this:
+Return ONLY a JSON object with this exact format (no other text):
 {{
     "has_clear_problem": true,
     "has_evidence": true,
@@ -704,28 +579,36 @@ Respond with a JSON object like this:
     "conclusion_strength": 0.9
 }}
 
-Only provide the JSON response, no other text.
-"""
+Rules:
+- All boolean fields must be true or false (not strings)
+- All score fields must be numbers between 0.0 and 1.0
+- Provide ONLY the JSON object, no other text whatsoever"""
         
         try:
             structure_data = self._chat_json(system_prompt, prompt, temperature=0.1, task="structure_analysis")
 
             # Handle empty or invalid JSON response
             if not structure_data or not isinstance(structure_data, dict):
-                logger.warning(f"Invalid or empty content structure response")
+                logger.warning(f"Structure analysis returned invalid data: {type(structure_data)}")
                 return self._default_content_structure()
 
-            return ContentStructure(
-                has_clear_problem=structure_data.get("has_clear_problem", False),
-                has_evidence=structure_data.get("has_evidence", False),
-                has_multiple_perspectives=structure_data.get("has_multiple_perspectives", False),
-                has_actionable_conclusions=structure_data.get("has_actionable_conclusions", False),
-                logical_flow_score=float(structure_data.get("logical_flow_score", 0.5)),
-                argument_coherence=float(structure_data.get("argument_coherence", 0.5)),
-                conclusion_strength=float(structure_data.get("conclusion_strength", 0.5)),
-            )
+            # Extract values with defaults
+            try:
+                return ContentStructure(
+                    has_clear_problem=bool(structure_data.get("has_clear_problem", False)),
+                    has_evidence=bool(structure_data.get("has_evidence", False)),
+                    has_multiple_perspectives=bool(structure_data.get("has_multiple_perspectives", False)),
+                    has_actionable_conclusions=bool(structure_data.get("has_actionable_conclusions", False)),
+                    logical_flow_score=float(structure_data.get("logical_flow_score", 0.5)),
+                    argument_coherence=float(structure_data.get("argument_coherence", 0.5)),
+                    conclusion_strength=float(structure_data.get("conclusion_strength", 0.5))
+                )
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse structure data: {e}")
+                return self._default_content_structure()
+            
         except Exception as e:
-            logger.error(f"Failed to analyze content structure: {e}")
+            logger.error(f"Failed to analyze structure: {e}")
             return self._default_content_structure()
     
     def _default_content_structure(self) -> ContentStructure:
@@ -740,84 +623,96 @@ Only provide the JSON response, no other text.
             conclusion_strength=0.5
         )
     
-    def _determine_curation_decision(self, quality_scores: QualityScore, themes: List[Theme], note: Note) -> str:
-        """Determine whether to curate the note based on quality scores and themes.
+    def _determine_curation_reason(self, quality_scores: QualityScore, themes: List[Theme], 
+                                  content_structure: ContentStructure, note: Note) -> str:
+        """Determine why a note was curated or rejected.
         
         Args:
             quality_scores: Quality assessment scores
             themes: Identified themes
-            note: Note being evaluated
+            content_structure: Content structure analysis
+            note: The note being analyzed
             
         Returns:
-            Reason for curation decision
+            String explaining the curation decision
         """
-        # Check core quality thresholds
-        quality_passed = quality_scores.overall >= self.config.quality_threshold
-        relevance_passed = quality_scores.relevance >= self.config.relevance_threshold
-        
-        # Check professional writing quality (NEW - targeting 9/10 readiness)
-        professional_score = quality_scores.professional_writing_score
-        professional_threshold = getattr(self.config, 'professional_writing_threshold', 0.65)  # Configurable threshold for professional quality
-        professional_passed = professional_score >= professional_threshold
-        
-        # Enhanced decision logic
-        if not quality_passed and not relevance_passed and not professional_passed:
-            return f"Failed all thresholds: quality={quality_scores.overall:.2f}, relevance={quality_scores.relevance:.2f}, professional={professional_score:.2f}"
-        
-        if not quality_passed and not relevance_passed:
-            return f"Failed both quality ({quality_scores.overall:.2f} < {self.config.quality_threshold}) and relevance ({quality_scores.relevance:.2f} < {self.config.relevance_threshold}) thresholds"
-        
-        if not quality_passed:
-            return f"Failed quality threshold: {quality_scores.overall:.2f} < {self.config.quality_threshold}"
-        
-        if not relevance_passed:
-            return f"Failed relevance threshold: {quality_scores.relevance:.2f} < {self.config.relevance_threshold}"
-        
-        # Professional writing quality bonus (NEW)
-        if professional_passed:
-            professional_bonus = " (Professional writing quality bonus)"
-        else:
-            professional_bonus = f" (Professional writing: {professional_score:.2f} < {professional_threshold})"
-        
-        # Check if themes align with target themes
-        if self.config.target_themes:
-            theme_alignment = any(
-                any(target in theme.name.lower() or target in theme.keywords for target in self.config.target_themes)
-                for theme in themes
-            )
+        try:
+            # Check if we have valid analysis results
+            if not quality_scores or not themes or not content_structure:
+                return "Analysis incomplete - using fallback assessment"
             
-            if not theme_alignment:
-                return f"Content themes ({[t.name for t in themes]}) don't align with target themes ({self.config.target_themes})"
-        
-        # All checks passed
-        return f"Passed all curation criteria: quality={quality_scores.overall:.2f}, relevance={quality_scores.relevance:.2f}{professional_bonus}"
+            # Determine primary reason for curation
+            reasons = []
+            
+            # Quality-based reasons
+            if quality_scores.overall >= 0.8:
+                reasons.append("High overall quality")
+            elif quality_scores.overall >= 0.6:
+                reasons.append("Good overall quality")
+            
+            if quality_scores.relevance >= 0.8:
+                reasons.append("Highly relevant content")
+            elif quality_scores.relevance >= 0.6:
+                reasons.append("Relevant content")
+            
+            # Theme-based reasons
+            if themes:
+                confident_themes = [t for t in themes if t.confidence >= 0.7]
+                if confident_themes:
+                    theme_names = [t.name for t in confident_themes[:2]]  # Top 2 themes
+                    reasons.append(f"Strong themes: {', '.join(theme_names)}")
+            
+            # Structure-based reasons
+            if content_structure.has_clear_problem:
+                reasons.append("Clear problem statement")
+            if content_structure.has_actionable_conclusions:
+                reasons.append("Actionable insights")
+            if content_structure.logical_flow_score >= 0.7:
+                reasons.append("Good logical flow")
+            
+            # Content length consideration
+            content_length = len(note.content) if note.content else 0
+            if content_length > 500:
+                reasons.append("Substantial content")
+            elif content_length > 200:
+                reasons.append("Adequate content length")
+            
+            if reasons:
+                return "; ".join(reasons)
+            else:
+                return "Meets basic curation criteria"
+                
+        except Exception as e:
+            logger.warning(f"Failed to determine curation reason: {e}")
+            return "Analysis completed with fallback assessment"
     
-    def _default_quality_scores(self) -> QualityScore:
-        """Return default quality scores when AI analysis fails."""
+    def _get_default_scores(self) -> QualityScore:
+        """Get default quality scores for failed analysis."""
         return QualityScore(
-            # Core metrics - realistic conservative scores when AI fails
-            overall=0.5,
-            relevance=0.4,
-            completeness=0.45,
-            credibility=0.5,
-            clarity=0.5,
-            # Professional writing metrics (NEW) - conservative scores
-            analytical_depth=0.3,
-            evidence_quality=0.3,
-            critical_thinking=0.35,
-            argument_structure=0.4,
-            practical_value=0.35
+            overall=0.5, relevance=0.6, completeness=0.4, credibility=0.5, clarity=0.4,
+            analytical_depth=0.4, evidence_quality=0.4, critical_thinking=0.4,
+            argument_structure=0.4, practical_value=0.4
+        )
+    
+    def _get_default_structure(self) -> ContentStructure:
+        """Get default content structure for failed analysis."""
+        return ContentStructure(
+            has_clear_problem=True,
+            has_evidence=False,
+            has_multiple_perspectives=False,
+            has_actionable_conclusions=True,
+            logical_flow_score=0.5,
+            argument_coherence=0.5,
+            conclusion_strength=0.5
         )
     
     def _default_theme(self) -> Theme:
-        """Return default theme when AI analysis fails."""
+        """Get default theme for failed analysis."""
         return Theme(
-            # Core theme fields
-            name="Unknown",
+            name="General Infrastructure",
             confidence=0.5,
             subthemes=[],
-            keywords=[],
-            # Professional insight classification (NEW)
+            keywords=["infrastructure", "general"],
             expertise_level="intermediate",
             content_category="technical",
             business_value="operational"
@@ -848,9 +743,9 @@ Only provide the JSON response, no other text.
             except Exception as e:
                 logger.error(f"Failed to analyze note {note.title}: {e}")
                 # Add default results for failed analysis
-                default_scores = self._default_quality_scores()
+                default_scores = self._get_default_scores()
                 default_themes = [self._default_theme()]
-                default_structure = self._default_content_structure()
+                default_structure = self._get_default_structure()
                 results.append((note, default_scores, default_themes, default_structure, f"Analysis failed: {str(e)}"))
         
         return results

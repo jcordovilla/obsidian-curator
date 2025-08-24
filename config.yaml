@@ -1,43 +1,36 @@
 # Obsidian Curator Configuration
-# This file contains the default configuration for the curation process
+# Optimized thresholds for better content capture (August 2024)
 
-# AI Model Configuration - Multi-Model Architecture for Performance
-ai_model: "gpt-oss:20b"  # Default/fallback model for complex tasks
-reasoning_level: "low"   # AI reasoning level: low, medium, high
-max_tokens: 2000         # Maximum tokens for AI analysis
-
-# Task-Specific Models (optimized for speed and accuracy)
+# AI Model Configuration
+ai_model: "gpt-oss:20b"
 models:
-  content_curation: "phi3:mini"     # 2.2GB - Fast binary decisions for content filtering
-  quality_analysis: "llama3.1:8b"  # 4.9GB - Balanced speed/accuracy for quality scoring
-  theme_classification: "llama3.1:8b"  # 4.9GB - Pattern recognition and categorization
-  structure_analysis: "phi3:mini"   # 2.2GB - Boolean flags and simple scoring
-  fallback: "gpt-oss:20b"          # 13GB - Complex edge cases only
+  content_curation: "phi3:mini"
+  quality_analysis: "llama3.1:8b"
+  theme_classification: "llama3.1:8b"
+  structure_analysis: "phi3:mini"
+  fallback: "gpt-oss:20b"
+
+# Reasoning Level
+reasoning_level: "low"
 
 # Quality Thresholds (0.0 - 1.0) - Optimized for better content capture
 quality_threshold: 0.65  # Minimum overall quality score for curation (lowered for broader capture)
-relevance_threshold: 0.65 # Minimum relevance score for curation (maintained for precision)
+relevance_threshold: 0.65  # Minimum relevance score for curation (maintained for precision)
 analytical_depth_threshold: 0.65  # Minimum analytical depth for publication-ready content
 professional_writing_threshold: 0.65  # Minimum professional writing score for curation (lowered from 0.70)
-min_content_length: 300   # Minimum content length (characters) for useful notes (lowered for valuable short notes)
 
-# Target Themes (leave empty for all themes)
-target_themes:
-  - infrastructure
-  - construction
-  - governance
-  - sustainability
-  - economics
+# Content Processing
+min_content_length: 300   # Minimum content length (characters) for useful notes (lowered for valuable short notes)
+max_tokens: 2000          # Maximum tokens for AI analysis
+
+# Theme Configuration
+target_themes: []  # Empty list means all themes are considered
+theme_similarity_threshold: 0.3
 
 # Processing Options
-preserve_metadata: true  # Whether to preserve original note metadata
-clean_html: true        # Whether to clean HTML content from web clippings
-remove_duplicates: true # Whether to remove duplicate content
-theme_similarity_threshold: 0.3 # Similarity threshold for fuzzy theme matching
+preserve_metadata: true
+clean_html: true
+remove_duplicates: true
 
-# Sample Size (for testing - leave null for all notes)
-sample_size: null       # Number of notes to process (random sample)
-
-# Default Paths (for reference)
-# Raw notes for curation: /Users/jose/Documents/Obsidian/Evermd
-# Published articles (target quality): my-writings/
+# Sample Size (for testing)
+sample_size: 20
