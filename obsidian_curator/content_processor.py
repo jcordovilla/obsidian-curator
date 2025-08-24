@@ -14,6 +14,8 @@ from loguru import logger
 
 from .models import Note, ContentType
 from .content_extractor import ContentExtractor
+from .ai_content_classifier import AIContentClassifier, ContentAnalysis
+from .specialized_processors import SpecializedContentProcessor, ProcessingResult
 
 
 class ContentProcessor:
@@ -25,7 +27,8 @@ class ContentProcessor:
                  extract_linked_content: bool = True,
                  max_pdf_pages: int = 100,
                  intelligent_extraction: bool = True,
-                 ai_model: str = None):
+                 ai_model: str = None,
+                 enable_ai_classification: bool = True):
         """Initialize the content processor.
         
         Args:
@@ -35,10 +38,26 @@ class ContentProcessor:
             max_pdf_pages: Maximum number of PDF pages to process
             intelligent_extraction: Use AI to filter and summarize extracted content
             ai_model: AI model to use for intelligent extraction
+            enable_ai_classification: Whether to use AI for content classification
         """
         self.clean_html = clean_html
         self.preserve_metadata = preserve_metadata
         self.extract_linked_content = extract_linked_content
+        self.enable_ai_classification = enable_ai_classification
+        
+        # Initialize AI content classifier if enabled
+        if self.enable_ai_classification:
+            self.ai_classifier = AIContentClassifier(
+                model=ai_model or "phi3:mini",
+                enable_ai=True,
+                fallback_to_rules=True
+            )
+            self.specialized_processor = SpecializedContentProcessor()
+            logger.info("AI content classification enabled")
+        else:
+            self.ai_classifier = None
+            self.specialized_processor = None
+            logger.info("AI content classification disabled")
         
         # Initialize content extractor if enabled
         if self.extract_linked_content:
@@ -100,12 +119,55 @@ class ContentProcessor:
         # Apply sanitization if configured
         clean_content = self._sanitize_content(clean_content)
         
-        # For web content, check if cleaning resulted in meaningful content
-        if content_type in [ContentType.WEB_CLIPPING] and clean_content:
-            clean_content = self._validate_web_content_quality(clean_content, file_path)
-        
-        # Determine content type
-        content_type = self._determine_content_type(metadata, clean_content)
+        # Use AI classification if enabled
+        if self.enable_ai_classification and self.ai_classifier:
+            try:
+                # Classify content using AI
+                content_analysis = self.ai_classifier.classify_content(
+                    clean_content, metadata, file_path
+                )
+                
+                # Process content using specialized processor
+                processing_result = self.specialized_processor.process_content(
+                    clean_content, content_analysis, metadata, file_path
+                )
+                
+                # Use the processed content and type
+                clean_content = processing_result.cleaned_content
+                content_type = processing_result.content_type
+                
+                # Log processing results
+                logger.info(f"AI classification: {content_analysis.category.value} "
+                          f"(confidence: {content_analysis.confidence:.2f})")
+                logger.info(f"Processing strategy: {content_analysis.processing_strategy}")
+                logger.info(f"Quality score: {processing_result.quality_score:.2f}")
+                
+                # Add processing metadata
+                if 'ai_analysis' not in metadata:
+                    metadata['ai_analysis'] = {}
+                metadata['ai_analysis'].update({
+                    'category': content_analysis.category.value,
+                    'confidence': content_analysis.confidence,
+                    'processing_strategy': content_analysis.processing_strategy,
+                    'quality_score': processing_result.quality_score,
+                    'processing_notes': processing_result.processing_notes
+                })
+                
+            except Exception as e:
+                logger.warning(f"AI classification failed: {e}, falling back to rule-based")
+                # Fall back to rule-based content type determination
+                content_type = self._determine_content_type(metadata, clean_content)
+                
+                # For web content, check if cleaning resulted in meaningful content
+                if content_type in [ContentType.WEB_CLIPPING] and clean_content:
+                    clean_content = self._validate_web_content_quality(clean_content, file_path)
+        else:
+            # Use traditional rule-based approach
+            content_type = self._determine_content_type(metadata, clean_content)
+            
+            # For web content, check if cleaning resulted in meaningful content
+            if content_type in [ContentType.WEB_CLIPPING] and clean_content:
+                clean_content = self._validate_web_content_quality(clean_content, file_path)
         
         # Clean content if needed - apply HTML cleaning only to actual HTML content
         # For web clippings that are already in Markdown format, use text-based cleaning

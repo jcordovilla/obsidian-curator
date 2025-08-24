@@ -3,6 +3,8 @@
 
 # AI Model Configuration
 ai_model: "gpt-oss:20b"
+enable_ai_classification: true  # Enable AI-powered content classification
+ai_classification_model: "phi3:mini"  # Model for content type classification
 models:
   content_curation: "phi3:mini"
   quality_analysis: "llama3.1:8b"

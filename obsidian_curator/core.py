@@ -42,7 +42,8 @@ class ObsidianCurator:
             clean_html=config.clean_html,
             preserve_metadata=config.preserve_metadata,
             intelligent_extraction=True,  # Enable intelligent extraction by default
-            ai_model=config.ai_model  # Pass AI model for content curation
+            ai_model=config.ai_model,  # Pass AI model for content curation
+            enable_ai_classification=getattr(config, 'enable_ai_classification', True)  # Enable AI classification by default
         )
         self.ai_analyzer = AIAnalyzer(config)
         self.theme_classifier = ThemeClassifier(
@@ -174,7 +175,8 @@ class ObsidianCurator:
             clean_html=self.config.clean_html,
             preserve_metadata=self.config.preserve_metadata,
             intelligent_extraction=True,
-            ai_model=self.config.ai_model
+            ai_model=self.config.ai_model,
+            enable_ai_classification=getattr(self.config, 'enable_ai_classification', True)
         )
         
         notes = []

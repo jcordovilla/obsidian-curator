@@ -249,7 +249,8 @@ class CurationWorker(QThread):
             clean_html=self.config.clean_html,
             preserve_metadata=self.config.preserve_metadata,
             intelligent_extraction=True,  # Always enabled - content extraction is core functionality
-            ai_model=self.config.ai_model
+            ai_model=self.config.ai_model,
+            enable_ai_classification=getattr(self.config, 'enable_ai_classification', True)
         )
         
         # Override content extractor settings for faster processing in GUI
