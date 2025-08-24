@@ -92,6 +92,30 @@ dedupe:
   write_aliases: true
   report_path: "metadata/duplicates.md"
 
+# Unicode & Content Sanitization
+sanitize:
+  enabled: true
+  remove_unicode:
+    - NBSP
+    - SOFT_HYPHEN
+    - ZWSP
+  boilerplate_patterns_path: "obsidian_curator/clutter_patterns.txt"
+  normalize_form: "NFKC"
+
+# Observability & Metrics
+metrics:
+  enabled: true
+  path: "metadata/performance-metrics.md"
+  fields:
+    - "latency.total_ms"
+    - "latency.ai_ms"
+    - "route.stage"
+    - "decision"
+    - "reason_top"
+    - "type"
+    - "duplicates_cluster"
+  charts: true
+
 # Content Processing
 min_content_length: 300   # Minimum content length (characters) for useful notes (lowered for valuable short notes)
 max_tokens: 2000          # Maximum tokens for AI analysis

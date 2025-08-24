@@ -97,6 +97,9 @@ class ContentProcessor:
         # Extract metadata and content
         metadata, clean_content = self._extract_metadata_and_content(content)
         
+        # Apply sanitization if configured
+        clean_content = self._sanitize_content(clean_content)
+        
         # Determine content type
         content_type = self._determine_content_type(metadata, clean_content)
         
@@ -203,6 +206,61 @@ class ContentProcessor:
                 logger.warning(f"Failed to parse frontmatter: {e}")
         
         return metadata, clean_content
+    
+    def _sanitize_content(self, content: str) -> str:
+        """Sanitize content by removing problematic Unicode and normalizing.
+        
+        Args:
+            content: Content to sanitize
+            
+        Returns:
+            Sanitized content
+        """
+        if not content:
+            return content
+        
+        import unicodedata
+        
+        # Unicode normalization
+        try:
+            content = unicodedata.normalize('NFKC', content)
+        except Exception as e:
+            logger.warning(f"Unicode normalization failed: {e}")
+        
+        # Remove problematic Unicode characters
+        unicode_replacements = {
+            'NBSP': '\u00A0',           # Non-breaking space
+            'SOFT_HYPHEN': '\u00AD',    # Soft hyphen
+            'ZWSP': '\u200B',           # Zero-width space
+            'ZWNJ': '\u200C',           # Zero-width non-joiner
+            'ZWJ': '\u200D',            # Zero-width joiner
+            'LRM': '\u200E',            # Left-to-right mark
+            'RLM': '\u200F',            # Right-to-left mark
+        }
+        
+        for char_name, char_code in unicode_replacements.items():
+            content = content.replace(char_code, ' ')
+        
+        # Normalize whitespace
+        content = re.sub(r'\s+', ' ', content)
+        content = content.strip()
+        
+        # Remove common boilerplate patterns if file exists
+        try:
+            patterns_path = Path(__file__).with_name('clutter_patterns.txt')
+            if patterns_path.exists():
+                pattern_lines = patterns_path.read_text(encoding='utf-8').splitlines()
+                for pattern_line in pattern_lines:
+                    pattern_line = pattern_line.strip()
+                    if pattern_line and not pattern_line.startswith('#'):
+                        try:
+                            content = re.sub(pattern_line, '', content, flags=re.IGNORECASE | re.MULTILINE)
+                        except re.error:
+                            continue
+        except Exception as e:
+            logger.warning(f"Failed to apply boilerplate patterns: {e}")
+        
+        return content
     
     def _determine_content_type(self, metadata: Dict[str, Any], content: str) -> ContentType:
         """Determine the type of content based on metadata and content.

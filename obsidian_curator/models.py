@@ -279,6 +279,22 @@ class DeduplicationConfig(BaseModel):
     report_path: str = Field(default="metadata/duplicates.md", description="Path for duplicate report")
 
 
+class SanitizationConfig(BaseModel):
+    """Configuration for content sanitization."""
+    enabled: bool = Field(default=True, description="Enable content sanitization")
+    remove_unicode: List[str] = Field(default_factory=lambda: ["NBSP", "SOFT_HYPHEN", "ZWSP"], description="Unicode characters to remove")
+    boilerplate_patterns_path: str = Field(default="obsidian_curator/clutter_patterns.txt", description="Path to boilerplate patterns file")
+    normalize_form: str = Field(default="NFKC", description="Unicode normalization form")
+
+
+class MetricsConfig(BaseModel):
+    """Configuration for metrics and observability."""
+    enabled: bool = Field(default=True, description="Enable metrics collection")
+    path: str = Field(default="metadata/performance-metrics.md", description="Path for metrics report")
+    fields: List[str] = Field(default_factory=lambda: ["latency.total_ms", "latency.ai_ms", "decision", "type"], description="Fields to track")
+    charts: bool = Field(default=True, description="Generate charts in metrics")
+
+
 class TaskModels(BaseModel):
     """Task-specific model configuration for optimized performance."""
     
@@ -297,6 +313,8 @@ class CurationConfig(BaseModel):
     triage: TriageConfig = Field(default_factory=TriageConfig, description="Borderline triage configuration")
     content_types: ContentTypesConfig = Field(default_factory=ContentTypesConfig, description="Content-type specific rules")
     dedupe: DeduplicationConfig = Field(default_factory=DeduplicationConfig, description="Deduplication configuration")
+    sanitize: SanitizationConfig = Field(default_factory=SanitizationConfig, description="Content sanitization configuration")
+    metrics: MetricsConfig = Field(default_factory=MetricsConfig, description="Metrics and observability configuration")
     reasoning_level: str = Field(default="low", description="AI reasoning level: low, medium, high")
     
     @validator('reasoning_level')
