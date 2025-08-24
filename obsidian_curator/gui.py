@@ -83,16 +83,20 @@ class CurationWorker(QThread):
             from .core import ObsidianCurator
             curator = ObsidianCurator(self.config)
             
-            # Step 3: Process and analyze notes using CLI logic
-            self.progress_updated.emit(20, 100, f"Processing {len(file_paths)} notes...")
+            # Step 3: Process notes
+            self.progress_updated.emit(10, 100, f"Processing {len(file_paths)} notes...")
             processed_notes = curator._process_selected_notes(file_paths)
+            self.progress_updated.emit(15, 100, f"Processed {len(processed_notes)} notes")
             
-            # Step 4: AI analysis using CLI logic
-            self.progress_updated.emit(50, 100, "Performing AI analysis...")
+            # Step 4: AI analysis - this is the main time-consuming part
+            self.progress_updated.emit(20, 100, "Starting AI analysis...")
+            
+            # For now, we'll use the batch method but provide better progress indication
+            # The actual progress happens inside _analyze_notes with tqdm
             curation_results = curator._analyze_notes(processed_notes)
             
             # Step 4.5: Deduplication
-            self.progress_updated.emit(75, 100, "Performing deduplication...")
+            self.progress_updated.emit(90, 100, "Performing deduplication...")
             curation_results = curator._deduplicate_results(curation_results)
             
             # Log temporary directory info
@@ -776,8 +780,9 @@ class ObsidianCuratorGUI(QMainWindow):
         percentage = current if current <= 100 else int((current / total * 100)) if total > 0 else 0
         self.progress_bar.setValue(percentage)
         
+        # Only show ETA for meaningful progress updates (not static step markers)
         eta_text = ""
-        if self.start_time and percentage > 0:
+        if self.start_time and percentage > 0 and "Starting" not in current_note and "Performing" not in current_note:
             elapsed = time.time() - self.start_time
             if percentage > 5:  # Only estimate after some progress
                 estimated_total = elapsed * (100 / percentage)
