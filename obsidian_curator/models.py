@@ -182,6 +182,8 @@ class CurationResult(BaseModel):
     route_info: Optional[Dict[str, Any]] = Field(None, description="Model routing information")
     needs_triage: bool = Field(default=False, description="Whether this result needs human triage")
     triage_info: Optional[Dict[str, Any]] = Field(None, description="Triage information if applicable")
+    is_duplicate: bool = Field(default=False, description="Whether this note is a duplicate")
+    duplicate_info: Optional[Dict[str, Any]] = Field(None, description="Duplicate detection information")
     
     @property
     def primary_theme(self) -> Optional[Theme]:
@@ -262,6 +264,21 @@ class ContentTypesConfig(BaseModel):
     DEFAULT: ContentTypeRules = Field(default_factory=ContentTypeRules)
 
 
+class NearDuplicateConfig(BaseModel):
+    """Configuration for near-duplicate detection."""
+    method: str = Field(default="minhash", description="Method: minhash, simhash, or difflib")
+    threshold: float = Field(default=0.90, description="Similarity threshold")
+
+
+class DeduplicationConfig(BaseModel):
+    """Configuration for duplicate detection and removal."""
+    enabled: bool = Field(default=True, description="Enable deduplication")
+    exact: bool = Field(default=True, description="Remove exact duplicates")
+    near: NearDuplicateConfig = Field(default_factory=NearDuplicateConfig, description="Near-duplicate configuration")
+    write_aliases: bool = Field(default=True, description="Write duplicate aliases in frontmatter")
+    report_path: str = Field(default="metadata/duplicates.md", description="Path for duplicate report")
+
+
 class TaskModels(BaseModel):
     """Task-specific model configuration for optimized performance."""
     
@@ -279,6 +296,7 @@ class CurationConfig(BaseModel):
     routing: RoutingConfig = Field(default_factory=RoutingConfig, description="Model routing configuration")
     triage: TriageConfig = Field(default_factory=TriageConfig, description="Borderline triage configuration")
     content_types: ContentTypesConfig = Field(default_factory=ContentTypesConfig, description="Content-type specific rules")
+    dedupe: DeduplicationConfig = Field(default_factory=DeduplicationConfig, description="Deduplication configuration")
     reasoning_level: str = Field(default="low", description="AI reasoning level: low, medium, high")
     
     @validator('reasoning_level')

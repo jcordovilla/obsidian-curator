@@ -82,6 +82,16 @@ content_types:
       overall: 0.65
       relevance: 0.65
 
+# Duplicate Detection Configuration
+dedupe:
+  enabled: true
+  exact: true
+  near:
+    method: "minhash"  # options: "minhash" | "simhash" | "difflib"
+    threshold: 0.90     # similarity threshold for near-duplicates
+  write_aliases: true
+  report_path: "metadata/duplicates.md"
+
 # Content Processing
 min_content_length: 300   # Minimum content length (characters) for useful notes (lowered for valuable short notes)
 max_tokens: 2000          # Maximum tokens for AI analysis

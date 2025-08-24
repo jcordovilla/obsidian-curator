@@ -23,6 +23,7 @@ from .theme_classifier import ThemeClassifier
 from .vault_organizer import VaultOrganizer
 from .note_discovery import discover_markdown_files
 from .triage import TriageManager
+from .deduplication import DeduplicationManager
 
 
 class ObsidianCurator:
@@ -49,6 +50,7 @@ class ObsidianCurator:
         )
         self.vault_organizer = VaultOrganizer(config)
         self.triage_manager = TriageManager(config.triage)
+        self.dedup_manager = DeduplicationManager(config.dedupe)
         
         logger.info("Obsidian Curator initialized")
         logger.debug(f"Configuration: {config}")
@@ -116,6 +118,10 @@ class ObsidianCurator:
             # Step 3: AI analysis
             logger.info("Step 3: Performing AI analysis...")
             curation_results = self._analyze_notes(processed_notes)
+            
+            # Step 3.5: Deduplication
+            logger.info("Step 3.5: Performing deduplication...")
+            curation_results = self._deduplicate_results(curation_results)
             
             # Step 4: Create curated vault
             logger.info("Step 4: Creating curated vault...")
@@ -380,7 +386,9 @@ class ObsidianCurator:
                         processing_notes=[],
                         route_info=route_info,  # NEW: Include routing information
                         needs_triage=needs_triage,  # NEW: Triage flag
-                        triage_info=triage_info  # NEW: Triage information
+                        triage_info=triage_info,  # NEW: Triage information
+                        is_duplicate=False,  # NEW: Duplicate flag (will be updated in deduplication)
+                        duplicate_info=None  # NEW: Duplicate information
                     )
                     
                     curation_results.append(result)
@@ -429,7 +437,9 @@ class ObsidianCurator:
                         processing_notes=[f"AI analysis failed: {str(e)}"],
                         route_info=None,
                         needs_triage=False,
-                        triage_info=None
+                        triage_info=None,
+                        is_duplicate=False,
+                        duplicate_info=None
                     )
                     curation_results.append(result)
                     continue
@@ -449,6 +459,44 @@ class ObsidianCurator:
             relevance = result.quality_scores.relevance
             logger.info(f"{status}: '{result.note.title[:50]}...' (Q:{quality:.2f}, R:{relevance:.2f}) - {result.curation_reason}")
         
+        return curation_results
+    
+    def _deduplicate_results(self, curation_results: List[CurationResult]) -> List[CurationResult]:
+        """Perform deduplication on curation results.
+        
+        Args:
+            curation_results: List of curation results
+            
+        Returns:
+            List of deduplicated curation results
+        """
+        if not self.config.dedupe.enabled:
+            logger.info("Deduplication disabled, skipping")
+            return curation_results
+        
+        logger.info(f"Starting deduplication on {len(curation_results)} results")
+        
+        # Detect duplicates
+        canonical_results, duplicate_clusters = self.dedup_manager.detect_duplicates(curation_results)
+        
+        # Mark duplicates in clusters
+        self.dedup_manager.mark_duplicates_in_clusters(duplicate_clusters)
+        
+        # Generate duplicate report
+        if self.config.dedupe.report_path and duplicate_clusters:
+            output_path = Path(self.config.dedupe.report_path)
+            if not output_path.is_absolute():
+                # Make relative to output directory (we'll need to get this from somewhere)
+                output_path = Path("metadata") / output_path.name
+            
+            self.dedup_manager.generate_duplicate_report(duplicate_clusters, str(output_path))
+        
+        # Count results
+        total_duplicates = sum(len(cluster) - 1 for cluster in duplicate_clusters)
+        logger.info(f"Deduplication complete: {len(canonical_results)} unique, {total_duplicates} duplicates removed")
+        
+        # Return all results (including duplicates marked for reference)
+        # The vault organizer will decide which ones to actually save
         return curation_results
     
     def _should_curate(self, quality_scores, themes, content_length: int = 0, content_type=None) -> bool:
