@@ -15,6 +15,7 @@ class ContentType(str, Enum):
     ACADEMIC_PAPER = "academic_paper"
     PDF_ANNOTATION = "pdf_annotation"
     IMAGE_ANNOTATION = "image_annotation"
+    AUDIO_ANNOTATION = "audio_annotation"
     PROFESSIONAL_PUBLICATION = "professional_publication"
     UNKNOWN = "unknown"
 

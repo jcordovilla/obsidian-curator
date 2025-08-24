@@ -1,23 +1,95 @@
 <!--.*?-->
 <script[^>]*>.*?</script>
 <style[^>]*>.*?</style>
+
+# Advertisement and Marketing Patterns
 <div[^>]*class="[^"]*ad[^"]*"[^>]*>.*?</div>
+<div[^>]*id="[^"]*ad[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*advertisement[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*banner[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*promo[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*sponsor[^"]*"[^>]*>.*?</div>
+
+# Social Media and Sharing
 <div[^>]*class="[^"]*social[^"]*"[^>]*>.*?</div>
-<div[^>]*class="[^"]*cookie[^"]*"[^>]*>.*?</div>
-<div[^>]*class="[^"]*popup[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*share[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*twitter[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*facebook[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*linkedin[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*instagram[^"]*"[^>]*>.*?</div>
+
+# Navigation and UI Elements
 <div[^>]*class="[^"]*nav[^"]*"[^>]*>.*?</div>
 <div[^>]*class="[^"]*menu[^"]*"[^>]*>.*?</div>
 <div[^>]*class="[^"]*header[^"]*"[^>]*>.*?</div>
 <div[^>]*class="[^"]*footer[^"]*"[^>]*>.*?</div>
 <div[^>]*class="[^"]*sidebar[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*breadcrumb[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*pagination[^"]*"[^>]*>.*?</div>
 <nav[^>]*>.*?</nav>
 <header[^>]*>.*?</header>
 <footer[^>]*>.*?</footer>
 <aside[^>]*>.*?</aside>
+
+# Modern Web Elements
+<div[^>]*class="[^"]*cookie[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*popup[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*modal[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*overlay[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*newsletter[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*subscribe[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*notification[^"]*"[^>]*>.*?</div>
+
+# Media Player and Podcast Elements
+<div[^>]*class="[^"]*player[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*audio[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*video[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*podcast[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*controls[^"]*"[^>]*>.*?</div>
+
+# Comment and Interaction Sections
+<div[^>]*class="[^"]*comment[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*discussion[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*rating[^"]*"[^>]*>.*?</div>
+<div[^>]*class="[^"]*vote[^"]*"[^>]*>.*?</div>
+
+# WBEZ and Radio Station Specific Patterns
+\* \[Traffic\].*?
+\* \[\d+º.*?\]\(.*?\)
+\[.*?Pledge Your Support.*?\].*?
+\*\*Chicago Public Media Productions\*\*.*?
+\*\*National Programs\*\*.*?
+\*\*\[On Air Schedule\].*?\*\*.*?
+\[Events Calendar\].*?
+\[Off-Air Event Series\].*?
+\* \[Programs\].*?
+\* \[News\].*?
+\* \[Series\].*?
+\* \[Events\].*?
+\* \[Podcasts\].*?
+
+# Generic Web Clutter Patterns
 \[Saltar a.*?\]
 \(Publicidad\)
 PUBLICIDAD
+Advertisement
+Subscribe to.*?
+Sign up for.*?
+Follow us on.*?
+Related Articles.*?
+More from.*?
+Trending.*?
+Popular.*?
+Recommended.*?
+
+# Copyright and Legal
 Copyright.*?\..*?$
+All rights reserved.*?
+Terms of Service.*?
+Privacy Policy.*?
+© \d{4}.*?
+
+# News and Media Timestamps
 Cotizaciones.*?redistribuir.*?información.*?$
 Yahoo!.*?Finanzas.*?México
 Haz de Y! tu página.*?inicio
@@ -31,3 +103,82 @@ Hace \d+.*?horas?
 Reuters.*?Hace.*?horas?
 AFP.*?Hace.*?horas?
 EFE.*?Hace.*?horas?
+Published.*?\d{4}
+Updated.*?\d{4}
+\d{1,2}/\d{1,2}/\d{4}.*?\d{1,2}:\d{2}
+
+# Email and Contact Forms
+<form[^>]*>.*?</form>
+<input[^>]*>
+<textarea[^>]*>.*?</textarea>
+<select[^>]*>.*?</select>
+<button[^>]*>.*?</button>
+
+# Donation and Funding Appeals
+Become a.*?Member.*?
+Donate.*?
+Support.*?
+Fund.*?
+Sponsor.*?
+
+# Footer and Contact Information
+\d{3}.*?East Grand Ave.*?
+Navy Pier.*?
+Chicago, Illinois.*?\d{5}.*?
+\[\[tel:.*?\]\].*?
+Contact Us.*?
+Directions.*?
+
+# Lists of Related Links (Common in news sites)
+## Featured.*?
+## \[.*?\].*?
+\[Prev\].*?\[Next\].*?
+On Now:.*?
+At \d+pm:.*?
+\[Full Program Schedule\].*?
+
+# Repetitive Navigation Elements
+\* \[.*?\].*?
+\* \[.*?\].*?
+\* \[.*?\].*?
+
+# Social Media Handles and Links
+https?://twitter\.com/.*?
+https?://.*?facebook.*?
+https?://.*?linkedin.*?
+https?://.*?instagram.*?
+
+# Sharing and Social Elements (Enhanced)
+\[Share on .*?\].*?
+Share on twitter.*?
+Share on facebook.*?
+Share on email.*?
+Share on gmail.*?
+More Sharing Services.*?
+\[Share on print\].*?
+
+# Navigation and Back Links
+\[Back to .*?\].*?
+Back to Business Columns.*?
+
+# Comment and Discussion Sections
+Please \[sign in\].*?comment.*?
+Please sign in or subscribe.*?
+\[sign in\].*?\[subscribe\].*?
+
+# Website Navigation Elements
+Subjects \|.*?
+\|.*?Indonesia Investments.*?
+22 November 2013.*?
+
+# URLs and Web References (Enhanced)
+http://www\.addthis\.com/.*?
+http://www\.indonesia-investments\.com/.*?
+https?://[^\s\)]+\?.*?&.*?
+\[.*?\]\(http[^\)]*\)
+
+# Complex Web Sharing URLs
+ate=AT-.*?
+pub=xa-.*?
+addthis.*?
+winname=addthis.*?

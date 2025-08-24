@@ -62,11 +62,14 @@ class ContentProcessor:
             pattern_strings = [
                 line.strip()
                 for line in patterns_path.read_text(encoding='utf-8').splitlines()
-                if line.strip()
+                if line.strip() and not line.strip().startswith('#')  # Skip comments and empty lines
             ]
-            self.clutter_patterns = [
-                re.compile(pat, re.IGNORECASE | re.DOTALL) for pat in pattern_strings
-            ]
+            self.clutter_patterns = []
+            for pat in pattern_strings:
+                try:
+                    self.clutter_patterns.append(re.compile(pat, re.IGNORECASE | re.DOTALL))
+                except re.error as e:
+                    logger.warning(f"Invalid regex pattern '{pat}': {e}")
         else:
             self.clutter_patterns = []
     
@@ -97,9 +100,18 @@ class ContentProcessor:
         # Determine content type
         content_type = self._determine_content_type(metadata, clean_content)
         
-        # Clean content if needed - apply only to content types that actually contain HTML
+        # Clean content if needed - apply HTML cleaning only to actual HTML content
+        # For web clippings that are already in Markdown format, use text-based cleaning
         if self.clean_html and content_type in [ContentType.WEB_CLIPPING, ContentType.IMAGE_ANNOTATION, ContentType.PDF_ANNOTATION]:
-            clean_content = self._clean_html_content(clean_content)
+            # Check if content is actually HTML or already Markdown
+            html_indicators = ['<div', '<span', '<table', '<tr', '<td', '<p>', '<ul', '<ol', '<li', '<html', '<body']
+            is_html = any(indicator in clean_content for indicator in html_indicators)
+            
+            if is_html:
+                clean_content = self._clean_html_content(clean_content)
+            else:
+                # It's a Markdown web clipping - use gentler text-based cleaning
+                clean_content = self._clean_markdown_web_content(clean_content)
         # URL references don't need HTML cleaning as they're typically simple bookmarks
         
         # Extract linked content if enabled
@@ -134,6 +146,10 @@ class ContentProcessor:
         
         # Extract source URL
         source_url = self._extract_source_url(metadata, clean_content)
+        
+        # Semantic content validation
+        if not self._has_meaningful_content(clean_content, content_type):
+            logger.warning(f"Note '{file_path.name}' lacks meaningful content")
         
         return Note(
             file_path=file_path,
@@ -202,11 +218,7 @@ class ContentProcessor:
         if self._contains_pdf_references(content):
             return ContentType.PDF_ANNOTATION
         
-        # Check for image annotations
-        if self._contains_image_references(content):
-            return ContentType.IMAGE_ANNOTATION
-        
-        # Check for web clippings vs URL references vs personal notes with URLs
+        # Check for web clippings first (before audio/image since web clippings often contain them)
         if self._contains_urls(content):
             # First check if it's a substantial web clipping
             if self._is_web_clipping(content):
@@ -220,6 +232,14 @@ class ContentProcessor:
             if self._is_primarily_url_reference(content):
                 return ContentType.URL_REFERENCE
             # If URLs are just incidental to substantial personal content, it's a personal note
+        
+        # Check for audio annotations  
+        if self._contains_audio_references(content):
+            return ContentType.AUDIO_ANNOTATION
+        
+        # Check for image annotations
+        if self._contains_image_references(content):
+            return ContentType.IMAGE_ANNOTATION
         
         # Check for academic content
         if self._is_academic_content(content):
@@ -238,6 +258,29 @@ class ContentProcessor:
             r'!\[\[.*\.pdf\]\]'  # Obsidian PDF embeds
         ]
         return any(re.search(pattern, content, re.IGNORECASE) for pattern in pdf_patterns)
+    
+    def _contains_audio_references(self, content: str) -> bool:
+        """Check if content contains audio/media references."""
+        audio_patterns = [
+            r'!\[\[.*\.(mp3|mp4|wav|m4a|aac|flac|wma|ogg)\]\]',  # Obsidian audio embeds
+            r'!\[.*\]\(.*\.(mp3|mp4|wav|m4a|aac|flac|wma|ogg)\)',  # Markdown audio links
+            r'<audio[^>]*>',  # HTML audio tags
+            r'<video[^>]*>',  # HTML video tags
+            r'\.(mp3|mp4|wav|m4a|aac|flac|wma|ogg)',  # Audio file extensions
+            r'!\[\[attachments/[^/]*\.resources/.*\]\]',  # Obsidian generic resource references (often audio)
+            r'\d{1,2}\s+(ago|ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)\.\s+\d{4}\s+\d{1,2}:\d{2}:\d{2}',  # Timestamp patterns
+        ]
+        
+        # Also check if content is minimal and mainly contains attachment references
+        lines = content.strip().split('\n')
+        non_empty_lines = [line.strip() for line in lines if line.strip()]
+        
+        # If most content is just attachment references, likely audio
+        attachment_lines = sum(1 for line in non_empty_lines if '![[attachments/' in line)
+        if len(non_empty_lines) <= 3 and attachment_lines > 0:
+            return True
+        
+        return any(re.search(pattern, content, re.IGNORECASE) for pattern in audio_patterns)
     
     def _contains_image_references(self, content: str) -> bool:
         """Check if content contains image references."""
@@ -435,13 +478,75 @@ class ContentProcessor:
                 content_to_convert = main_content if main_content else soup
                 cleaned_content = content_to_convert.get_text(separator='\n', strip=True)
         else:
-            # Content is already Markdown - just apply text cleanup
-            cleaned_content = content
+            # Content is already Markdown - apply comprehensive text cleanup
+            cleaned_content = self._clean_markdown_web_content(content)
         
         # Final cleanup of remaining clutter
         cleaned_content = self._final_text_cleanup(cleaned_content)
         
         return cleaned_content
+    
+    def _clean_markdown_web_content(self, content: str) -> str:
+        """Clean web clutter from markdown content while preserving article content."""
+        lines = content.split('\n')
+        cleaned_lines = []
+        
+        # Patterns for lines to completely remove (be very specific)
+        skip_line_patterns = [
+            r'^Subjects \|.*',  # Subject line with tags
+            r'^\d{1,2} \w+ \d{4} \|.*',  # Date line with source
+            r'^\[Share on .*?\].*',  # Share buttons
+            r'^Share on \w+.*',  # Share links
+            r'^\[Back to .*?\].*',  # Back navigation
+            r'^Back to .*',  # Back navigation
+            r'^Please \[sign in\].*',  # Login prompts
+            r'^Please sign in.*',  # Login prompts
+            r'^More Sharing Services.*',  # Sharing services
+            r'^\[.*?\]\(http.*addthis.*\).*',  # AddThis sharing links
+            r'^<http.*>$',  # Standalone URLs in angle brackets
+            r'^## Share This Column$',  # Share section headers
+            r'^## Discuss$',  # Discussion section headers
+            r'^\s*\.\s*$',  # Lines with just a period
+            r'^\*\*\s*$',  # Empty bold markers
+            r'^•\*\*\s*$',  # Bullet with empty bold
+        ]
+        
+        # Process each line
+        for line in lines:
+            # Skip truly empty lines
+            if not line.strip():
+                cleaned_lines.append('')  # Preserve paragraph breaks
+                continue
+                
+            # Check if this line should be completely removed
+            should_skip = False
+            for pattern in skip_line_patterns:
+                if re.match(pattern, line.strip(), re.IGNORECASE):
+                    should_skip = True
+                    break
+            
+            if should_skip:
+                continue
+            
+            # Preserve content lines but clean them gently
+            cleaned_line = line
+            
+            # Only remove specific problematic elements, don't remove whole lines
+            cleaned_line = re.sub(r'\[Share on .*?\].*?', '', cleaned_line)
+            cleaned_line = re.sub(r'\[.*?\]\(http.*addthis.*\)', '', cleaned_line)
+            cleaned_line = re.sub(r'<http[^>]*>', '', cleaned_line)
+            cleaned_line = re.sub(r'http[s]?://www\.addthis\.com[^\s\)]*', '', cleaned_line)
+            
+            # Keep the line even if it's just whitespace after cleaning (might be formatting)
+            cleaned_lines.append(cleaned_line)
+        
+        # Join the cleaned lines
+        result = '\n'.join(cleaned_lines)
+        
+        # Remove excessive blank lines but preserve some structure
+        result = re.sub(r'\n\s*\n\s*\n+', '\n\n', result)
+        
+        return result
     
     def _clean_web_elements(self, soup: BeautifulSoup) -> None:
         """Clean up common web elements that add clutter.
@@ -461,7 +566,10 @@ class ContentProcessor:
             'toolbar', 'breadcrumb', 'pagination', 'pager', 'metadata',
             'tags', 'category', 'byline', 'author', 'date', 'timestamp',
             'copyright', 'legal', 'disclaimer', 'terms', 'privacy',
-            'subscribe', 'newsletter', 'signup', 'login', 'search'
+            'subscribe', 'newsletter', 'signup', 'login', 'search',
+            # LinkedIn specific classes
+            'linkedin', 'profile', 'connections', 'network', 'inbox',
+            'notifications', 'account', 'settings', 'talent', 'sales'
         ]
         
         # Find elements with classes containing clutter keywords
@@ -477,6 +585,49 @@ class ContentProcessor:
                 id_str = element.get('id').lower()
                 if any(clutter in id_str for clutter in clutter_classes):
                     element.decompose()
+        
+        # Remove LinkedIn-specific navigation text patterns
+        linkedin_patterns = [
+            r'skip to main content',
+            r'find people, jobs, companies',
+            r'grow my network',
+            r'pending invitations',
+            r'people you may know',
+            r'add contacts',
+            r'account & settings',
+            r'sign out',
+            r'upgrade.*account',
+            r'job posting manage',
+            r'company page manage',
+            r'privacy.*settings',
+            r'help center',
+            r'get help',
+            r'edit profile',
+            r'who.*viewed.*profile',
+            r'your updates',
+            r'connections',
+            r'find alumni',
+            r'learning',
+            r'talent solutions',
+            r'sales solutions',
+            r'try premium',
+            r'user agreement',
+            r'privacy policy',
+            r'ad choices',
+            r'community guidelines',
+            r'cookie policy',
+            r'discover more stories',
+            r'don.*miss more posts',
+            r'sign in to like',
+            r'sign in to reply'
+        ]
+        
+        # Remove elements containing LinkedIn navigation patterns
+        import re
+        for pattern in linkedin_patterns:
+            for element in soup.find_all(string=re.compile(pattern, re.IGNORECASE)):
+                if element.parent:
+                    element.parent.decompose()
         
         # Remove tables that look like navigation/layout (not content)
         for table in soup.find_all('table'):
@@ -503,47 +654,188 @@ class ContentProcessor:
                     ul.decompose()
     
     def _html_to_markdown(self, soup: BeautifulSoup) -> str:
-        """Convert cleaned HTML to markdown.
+        """Convert HTML to clean markdown with intelligent content extraction.
         
         Args:
-            soup: Cleaned BeautifulSoup object
+            soup: BeautifulSoup object to convert
             
         Returns:
-            Markdown content
+            Clean markdown content
         """
-        # Convert common HTML elements to markdown
-        markdown_content = ""
+        # Remove all script, style, and tracking elements
+        for element in soup.find_all(['script', 'style', 'noscript', 'iframe', 'embed', 'object']):
+            element.decompose()
         
-        for element in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre']):
-            if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-                level = int(element.name[1])
-                markdown_content += f"{'#' * level} {element.get_text().strip()}\n\n"
-            elif element.name == 'p':
-                text = element.get_text().strip()
-                if text:
-                    markdown_content += f"{text}\n\n"
-            elif element.name == 'ul':
-                for li in element.find_all('li', recursive=False):
-                    markdown_content += f"- {li.get_text().strip()}\n"
-                markdown_content += "\n"
-            elif element.name == 'ol':
-                for i, li in enumerate(element.find_all('li', recursive=False), 1):
-                    markdown_content += f"{i}. {li.get_text().strip()}\n"
-                markdown_content += "\n"
-            elif element.name == 'blockquote':
-                text = element.get_text().strip()
-                if text:
-                    markdown_content += f"> {text}\n\n"
-            elif element.name == 'code':
-                text = element.get_text().strip()
-                if text:
-                    markdown_content += f"`{text}`"
-            elif element.name == 'pre':
-                text = element.get_text().strip()
-                if text:
-                    markdown_content += f"```\n{text}\n```\n\n"
+        # Remove tracking and analytics elements
+        tracking_patterns = [
+            'google-analytics', 'gtag', 'ga(', 'tracking', 'pixel',
+            'smartadserver', 'click', 'analytics', 'track'
+        ]
         
-        return markdown_content.strip()
+        for element in soup.find_all(True):
+            # Check attributes for tracking patterns
+            for attr in ['id', 'class', 'src', 'href']:
+                if element.get(attr):
+                    attr_value = str(element.get(attr)).lower()
+                    if any(pattern in attr_value for pattern in tracking_patterns):
+                        element.decompose()
+                        break
+            
+            # Remove elements with suspicious content
+            if element.get_text():
+                text = element.get_text().lower()
+                if any(pattern in text for pattern in ['tracking', 'analytics', 'pixel', 'smartadserver']):
+                    element.decompose()
+        
+        # Extract main content area
+        main_content = self._extract_main_content(soup)
+        if main_content:
+            content_to_convert = main_content
+        else:
+            # Fallback: use body content but clean it aggressively
+            content_to_convert = soup.find('body') or soup
+        
+        # Convert to markdown with proper structure
+        markdown_content = []
+        
+        # Process headings
+        for heading in content_to_convert.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+            level = int(heading.name[1])
+            text = heading.get_text().strip()
+            if text and len(text) > 3:  # Only add meaningful headings
+                markdown_content.append(f"{'#' * level} {text}")
+                markdown_content.append("")
+        
+        # Process paragraphs
+        for p in content_to_convert.find_all('p'):
+            text = p.get_text().strip()
+            if text and len(text) > 20:  # Only add substantial paragraphs
+                # Clean up the text
+                text = self._clean_text_content(text)
+                if text:
+                    markdown_content.append(text)
+                    markdown_content.append("")
+        
+        # Process lists
+        for ul in content_to_convert.find_all(['ul', 'ol']):
+            list_items = ul.find_all('li')
+            if len(list_items) > 0:
+                for li in list_items:
+                    text = li.get_text().strip()
+                    if text and len(text) > 5:
+                        text = self._clean_text_content(text)
+                        if text:
+                            markdown_content.append(f"- {text}")
+                markdown_content.append("")
+        
+        # Process blockquotes
+        for blockquote in content_to_convert.find_all('blockquote'):
+            text = blockquote.get_text().strip()
+            if text and len(text) > 20:
+                text = self._clean_text_content(text)
+                if text:
+                    markdown_content.append(f"> {text}")
+                    markdown_content.append("")
+        
+        # Join and clean up
+        result = "\n".join(markdown_content)
+        
+        # Final cleanup
+        result = self._final_text_cleanup(result)
+        
+        return result
+    
+    def _clean_text_content(self, text: str) -> str:
+        """Clean individual text content by removing clutter and normalizing.
+        
+        Args:
+            text: Raw text content
+            
+        Returns:
+            Cleaned text content
+        """
+        if not text:
+            return ""
+        
+        # Remove excessive whitespace
+        text = re.sub(r'\s+', ' ', text)
+        
+        # Remove LinkedIn-specific navigation text
+        linkedin_clutter = [
+            r'Skip to main content',
+            r'Find People, Jobs, Companies, and More',
+            r'All\s*People\s*Jobs\s*Companies\s*Groups\s*Universities\s*Posts',
+            r'Inbox.*messages',
+            r'Notifications.*unseen notifications',
+            r'Grow My Network',
+            r'See all.*invitations',
+            r'People You May Know',
+            r'Add contacts',
+            r'Gmail\s*Yahoo\s*Hotmail\s*Other',
+            r'Account & Settings',
+            r'Sign Out',
+            r'Job Posting Manage',
+            r'Company Page Manage',
+            r'Language Change',
+            r'Privacy & Settings Manage',
+            r'Help Center.*Get Help',
+            r'Home.*Edit Profile.*Connections',
+            r'Who.*s Viewed Your Profile',
+            r'Your Updates',
+            r'Find Alumni',
+            r'Learning.*Jobs.*Companies.*Groups',
+            r'Post a Job',
+            r'Talent Solutions',
+            r'Advertise',
+            r'Sales Solutions',
+            r'Learning Solutions',
+            r'Try Premium for free',
+            r'Publish a post',
+            r'Don.*t Miss More Posts',
+            r'Discover more stories',
+            r'Sign in to like this comment',
+            r'Sign in to reply to this comment',
+            r'Report this',
+            r'Help Center.*Press.*Blog.*Developers.*Careers',
+            r'Advertising.*Talent Solutions.*Sales Solutions',
+            r'Small Business.*Mobile.*Language',
+            r'Upgrade Your Account',
+            r'User Agreement.*Privacy Policy.*Ad Choices',
+            r'Community Guidelines.*Cookie Policy'
+        ]
+        
+        for pattern in linkedin_clutter:
+            text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+        
+        # Remove common web clutter patterns (enhanced)
+        clutter_patterns = [
+            r'\[Share on .*?\].*?',  # Social media sharing buttons
+            r'Share on \w+.*?',  # Share buttons
+            r'\[Back to .*?\].*?',  # Navigation links
+            r'Please \[sign in\].*?comment.*?',  # Comment prompts
+            r'Subjects \|.*?',  # Subject tags/categories
+            r'\d{1,2} \w+ \d{4} \|.*?',  # Date stamps with sources
+            r'More Sharing Services.*?',  # Sharing service prompts
+            r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',  # Remove URLs
+            r'www\.[^\s]+',  # Remove www URLs
+            r'photo:.*',  # Remove photo captions
+            r'Published on.*\d{4}',  # Remove publication dates
+            r'\[.*?\]\(http[^\)]*\)',  # Remove markdown-style links
+            r'<http[^>]*>',  # Remove angle-bracket URLs
+        ]
+        
+        for pattern in clutter_patterns:
+            text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+        
+        # Clean up remaining whitespace and normalize
+        text = re.sub(r'\s+', ' ', text)
+        text = text.strip()
+        
+        # Only return if content is substantial
+        if len(text) < 20:
+            return ""
+        
+        return text
     
     def _basic_html_cleanup(self, content: str) -> str:
         """Basic HTML cleanup when BeautifulSoup fails.
@@ -788,10 +1080,16 @@ class ContentProcessor:
             if not line:
                 continue
             
-            # Detect when we're in article content (starts with Reuters, etc.)
-            if ('REUTERS' in line or 'Reuters' in line or 
-                any(phrase in line for phrase in ['officials said', 'according to', 'announced']) and len(line) > 50):
+            # Detect when we're in substantial article content
+            if (len(line) > 100 and any(word in line.lower() for word in 
+                ['government', 'project', 'projects', 'construction', 'infrastructure', 'million', 'billion', 'company', 'investment'])):
                 in_article_content = True
+            
+            # Keep substantial content lines (likely article paragraphs)
+            if (len(line) > 50 and 
+                any(word in line.lower() for word in ['the', 'and', 'said', 'project', 'company', 'government', 'will', 'would', 'can', 'construction', 'infrastructure', 'development'])):
+                cleaned_lines.append(line)
+                continue
             
             # If we're in article content, be much more conservative about removal
             if in_article_content:
@@ -800,17 +1098,16 @@ class ContentProcessor:
                     'PUBLICIDAD', 'Publicidad', 'Productos Yahoo!',
                     'Más Buscados', 'Todo Sobre Los Mercados',
                     'YAHOO! FINANZAS', 'Más Yahoo! Finanzas',
-                    'Correo electrónico'
+                    'Correo electrónico', 'Share on', 'Back to'
                 ]
                 
                 # Only skip if it's clearly not article content
                 if any(indicator in line for indicator in skip_indicators):
                     continue
                 
-                # Don't skip lines with substantive content (> 30 chars and has meaningful words)
-                if len(line) > 30 and any(word in line.lower() for word in ['the', 'and', 'said', 'project', 'company', 'government', 'will', 'would', 'can']):
-                    cleaned_lines.append(line)
-                    continue
+                # Keep any remaining content when in article mode
+                cleaned_lines.append(line)
+                continue
             
             # Enhanced clutter removal for web content
             clutter_indicators = [
@@ -872,6 +1169,48 @@ class ContentProcessor:
             cleaned_lines.append(line)
         
         return '\n'.join(cleaned_lines)
+    
+    def _has_meaningful_content(self, content: str, content_type: ContentType) -> bool:
+        """Check if content has meaningful information."""
+        if not content or len(content.strip()) < 10:
+            return False
+        
+        # Audio content gets special treatment
+        if content_type == ContentType.AUDIO_ANNOTATION:
+            # Audio content is meaningful if it has attachment references
+            return '![[attachments/' in content or len(content.strip()) > 50
+        
+        # Check for substantial text content
+        words = content.split()
+        meaningful_words = [word for word in words if len(word) > 3 and word.isalpha()]
+        
+        if len(meaningful_words) < 5:
+            return False
+        
+        # Check for repetitive or template content
+        unique_words = set(meaningful_words)
+        if len(unique_words) < len(meaningful_words) * 0.3:  # Too much repetition
+            return False
+        
+        # Check for common empty content patterns
+        empty_patterns = [
+            r'^#+\s*$',  # Only headers
+            r'^\s*$',    # Only whitespace
+            r'^!?\[\[.*\]\]\s*$',  # Only links
+            r'^https?://.*$',  # Only URLs
+            r'^.*TODO.*$',  # TODO placeholders
+            r'^.*placeholder.*$',  # Placeholder text
+        ]
+        
+        content_lines = [line.strip() for line in content.split('\n') if line.strip()]
+        meaningful_lines = 0
+        
+        for line in content_lines:
+            if not any(re.match(pattern, line, re.IGNORECASE) for pattern in empty_patterns):
+                meaningful_lines += 1
+        
+        # At least half the lines should be meaningful
+        return meaningful_lines >= max(1, len(content_lines) * 0.5)
     
     def _clean_malformed_urls(self, content: str) -> str:
         """Clean malformed URLs and broken links that cause processing issues.

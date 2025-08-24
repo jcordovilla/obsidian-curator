@@ -128,17 +128,74 @@ class VaultOrganizer:
         # Generate filename and ensure uniqueness
         filename = self._generate_filename(result.note.title)
         file_path = folder_path / f"{filename}.md"
-        counter = 1
-        while file_path.exists():
-            file_path = folder_path / f"{filename}_{counter}.md"
-            counter += 1
         
-        # Create note content
+        # Create note content first
         note_content = self._create_note_content(result)
+        
+        # Enhanced duplicate detection and prevention
+        if file_path.exists():
+            try:
+                existing_content = file_path.read_text(encoding='utf-8')
+                # Compare the actual content parts (excluding metadata differences)
+                existing_main_content = self._extract_main_content(existing_content)
+                new_main_content = self._extract_main_content(note_content)
+                
+                # If main content is identical, skip saving completely
+                if existing_main_content.strip() == new_main_content.strip():
+                    logger.info(f"Skipping duplicate note: {result.note.title} (identical main content)")
+                    return
+                
+                # If content is very similar (90%+ similarity), still skip
+                similarity = self._calculate_content_similarity(existing_main_content, new_main_content)
+                if similarity > 0.9:
+                    logger.info(f"Skipping near-duplicate note: {result.note.title} (similarity: {similarity:.2f})")
+                    return
+                    
+            except Exception as e:
+                logger.warning(f"Failed to read existing file for comparison: {e}")
+        
+        # If we reach here and file exists, it means content is different enough
+        # But let's still avoid creating v2 files unless absolutely necessary
+        if file_path.exists():
+            logger.warning(f"File exists with different content, will overwrite: {file_path.name}")
+            # Instead of creating v2, we'll overwrite (since deduplication should have caught true duplicates)
+        
+        # No versioning - if we got here, save directly
         
         # Save file
         file_path.write_text(note_content, encoding='utf-8')
         logger.debug(f"Saved note: {file_path}")
+    
+    def _extract_main_content(self, content: str) -> str:
+        """Extract main content excluding metadata for comparison."""
+        lines = content.split('\n')
+        in_frontmatter = False
+        main_content_lines = []
+        
+        for line in lines:
+            if line.strip() == '---':
+                in_frontmatter = not in_frontmatter
+                continue
+            if not in_frontmatter:
+                main_content_lines.append(line)
+        
+        return '\n'.join(main_content_lines)
+    
+    def _calculate_content_similarity(self, content1: str, content2: str) -> float:
+        """Calculate similarity between two content strings."""
+        # Simple similarity based on common words
+        words1 = set(content1.lower().split())
+        words2 = set(content2.lower().split())
+        
+        if not words1 and not words2:
+            return 1.0
+        if not words1 or not words2:
+            return 0.0
+        
+        intersection = words1.intersection(words2)
+        union = words1.union(words2)
+        
+        return len(intersection) / len(union) if union else 0.0
     
     def _generate_filename(self, title: str) -> str:
         """Generate a clean filename from a title.
@@ -178,7 +235,7 @@ class VaultOrganizer:
             "title": result.note.title,
             "curated_date": datetime.now().isoformat(),
             "source": result.note.source_url or "Unknown",
-            "tags": [theme.name for theme in result.themes if theme.confidence >= 0.7],
+            "tags": [theme.name for theme in result.themes if theme.confidence >= 0.5],  # Lowered threshold for better tag coverage
         }
         
         # Preserve original metadata fields if they exist
@@ -215,8 +272,39 @@ class VaultOrganizer:
         content.append(f"# {result.note.title}")
         content.append("")
         
-        # Clean content presentation - just the content
-        content.append(result.cleaned_content)
+        # Add quality and theme information for transparency
+        if result.quality_scores:
+            content.append("## Quality Assessment")
+            content.append("")
+            content.append(f"- **Overall Quality**: {result.quality_scores.overall:.2f}/10")
+            content.append(f"- **Relevance**: {result.quality_scores.relevance:.2f}/10")
+            content.append(f"- **Analytical Depth**: {result.quality_scores.analytical_depth:.2f}/10")
+            content.append("")
+        
+        if result.themes:
+            content.append("## Identified Themes")
+            content.append("")
+            for theme in result.themes:
+                if theme.confidence >= 0.5:  # Only show confident themes
+                    content.append(f"- **{theme.name}** (confidence: {theme.confidence:.2f})")
+            content.append("")
+        
+        # Add curated content
+        content.append("## Content")
+        content.append("")
+        
+        # Clean and format the cleaned content
+        cleaned_content = result.cleaned_content.strip()
+        if cleaned_content:
+            # Split into paragraphs and clean each one
+            paragraphs = cleaned_content.split('\n\n')
+            for paragraph in paragraphs:
+                paragraph = paragraph.strip()
+                if paragraph and len(paragraph) > 20:  # Only add substantial paragraphs
+                    content.append(paragraph)
+                    content.append("")
+        else:
+            content.append("*No content available after curation.*")
         
         return "\n".join(content)
     

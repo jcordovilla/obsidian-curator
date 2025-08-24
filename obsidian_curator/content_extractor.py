@@ -193,9 +193,27 @@ class ContentExtractor:
             # Extract text
             content_text = main_content.get_text(separator='\n', strip=True)
             
-            # Limit content length
+            # Limit content length more intelligently
             if len(content_text) > self.max_url_content_length:
-                content_text = content_text[:self.max_url_content_length] + "\n\n[... content truncated ...]"
+                # Try to truncate at a sentence boundary
+                truncate_point = self.max_url_content_length
+                # Look for sentence endings in the last 200 chars
+                search_start = max(0, truncate_point - 200)
+                search_text = content_text[search_start:truncate_point + 100]
+                
+                sentence_endings = ['. ', '.\n', '! ', '!\n', '? ', '?\n']
+                best_end = -1
+                
+                for ending in sentence_endings:
+                    pos = search_text.rfind(ending)
+                    if pos > best_end:
+                        best_end = pos
+                
+                if best_end > 0:
+                    truncate_point = search_start + best_end + 1
+                    content_text = content_text[:truncate_point] + "\n\n[Content continues...]"
+                else:
+                    content_text = content_text[:self.max_url_content_length] + "\n\n[Content continues...]"
             
             if content_text.strip():
                 logger.info(f"Extracted {len(content_text)} characters from URL")

@@ -170,12 +170,35 @@ class ObsidianCurator:
         
         notes = []
         total_files = len(file_paths)
+        processed_content_hashes = set()  # Track processed content to avoid duplicates
+        processed_titles = set()  # Also track titles to catch near-duplicates
         
         with tqdm(file_paths, desc="Loading notes", unit="files") as pbar:
             for i, file_path in enumerate(pbar):
                 pbar.set_postfix(loaded=len(notes))
                 try:
                     note = processor.process_note(file_path)
+                    
+                    # Enhanced duplicate detection
+                    # 1. Check content hash (for identical content)
+                    content_hash = hash(note.content.strip().lower())
+                    if content_hash in processed_content_hashes:
+                        logger.warning(f"Skipping duplicate content: {note.title} (identical content)")
+                        continue
+                    
+                    # 2. Check title similarity (for near-duplicate files)
+                    normalized_title = self._normalize_title(note.title)
+                    if normalized_title in processed_titles:
+                        logger.warning(f"Skipping duplicate title: {note.title} (similar title)")
+                        continue
+                    
+                    # 3. Check if content is too short to be meaningful (except audio content)
+                    if len(note.content.strip()) < 100 and note.content_type != "audio_annotation":
+                        logger.warning(f"Skipping minimal content: {note.title} ({len(note.content.strip())} chars)")
+                        continue
+                    
+                    processed_content_hashes.add(content_hash)
+                    processed_titles.add(normalized_title)
                     notes.append(note)
                     
                     # Log progress
@@ -185,8 +208,16 @@ class ObsidianCurator:
                     logger.warning(f"Failed to process {file_path}: {e}")
                     continue
         
-        logger.info(f"Successfully processed {len(notes)} notes")
+        logger.info(f"Successfully processed {len(notes)} unique notes")
         return notes
+    
+    def _normalize_title(self, title: str) -> str:
+        """Normalize title for duplicate detection."""
+        import re
+        # Convert to lowercase, remove special characters, normalize whitespace
+        normalized = re.sub(r'[^\w\s]', '', title.lower())
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        return normalized
 
     def _discover_notes(self, input_path: Path) -> List[Note]:
         """Discover and load notes from the input vault.
@@ -265,7 +296,7 @@ class ObsidianCurator:
                     # Create curation result with enhanced metrics
                     result = CurationResult(
                         note=note,
-                        cleaned_content=note.content,  # Content already cleaned
+                        cleaned_content=note.content,  # Use the already cleaned content from processor
                         quality_scores=quality_scores,
                         themes=themes,
                         content_structure=content_structure,  # NEW: Include content structure
@@ -336,72 +367,102 @@ class ObsidianCurator:
         Returns:
             True if note should be curated
         """
-        # Enhanced quality thresholds for analytical content
-        meets_quality = quality_scores.overall >= self.config.quality_threshold
-        meets_relevance = quality_scores.relevance >= self.config.relevance_threshold
-        meets_analytical_depth = quality_scores.analytical_depth >= getattr(self.config, 'analytical_depth_threshold', 0.65)
-        
-        # Check minimum content length for usefulness
-        meets_length_requirement = content_length >= getattr(self.config, 'min_content_length', 500)
-        
-        # Professional writing quality assessment (higher standards)
-        professional_writing_score = (
-            quality_scores.analytical_depth + 
-            quality_scores.evidence_quality + 
-            quality_scores.critical_thinking + 
-            quality_scores.argument_structure + 
-            quality_scores.practical_value
-        ) / 5
-        
-        meets_professional_standard = professional_writing_score >= getattr(self.config, 'professional_writing_threshold', 0.65)
-        
-        # Bonus for truly analytical content (synthesis, critical thinking)
-        has_analytical_bonus = (
-            quality_scores.critical_thinking >= 0.7 and 
-            quality_scores.analytical_depth >= 0.7
-        )
-        
-        # Check if themes are relevant and strategic
-        relevant_themes = []
-        strategic_themes = []
-        
-        if self.config.target_themes:
-            # If target themes specified, check relevance
-            for theme in themes:
-                for target in self.config.target_themes:
-                    if target.lower() in theme.name.lower():
-                        relevant_themes.append(theme)
-                        # Prioritize strategic and thought-leader content
-                        if theme.expertise_level in ['expert', 'thought_leader'] and theme.content_category == 'strategic':
-                            strategic_themes.append(theme)
-                        break
-            has_relevant_themes = len(relevant_themes) > 0
-            has_strategic_themes = len(strategic_themes) > 0
-        else:
-            # If no target themes, all themes are considered relevant
-            has_relevant_themes = True
-            relevant_themes = themes
-            # Count strategic themes anyway
-            strategic_themes = [t for t in themes if t.content_category == 'strategic' and t.expertise_level in ['expert', 'thought_leader']]
-            has_strategic_themes = len(strategic_themes) > 0
-        
-        # Enhanced curation decision with analytical focus and length requirement
-        should_curate = (
-            meets_quality and 
-            meets_relevance and 
-            meets_length_requirement and
-            has_relevant_themes and
-            (
-                # Path 1: High analytical content with professional standards
-                (meets_analytical_depth and meets_professional_standard) or
-                # Path 2: Exceptional overall quality (compensates for lower analytical depth)
-                (quality_scores.overall >= 0.85 and has_analytical_bonus) or
-                # Path 3: Strategic themes with good analytical content
-                (has_strategic_themes and meets_analytical_depth and quality_scores.overall >= 0.7)
+        try:
+            # Enhanced quality thresholds for analytical content
+            meets_quality = quality_scores.overall >= self.config.quality_threshold
+            meets_relevance = quality_scores.relevance >= self.config.relevance_threshold
+            meets_analytical_depth = quality_scores.analytical_depth >= getattr(self.config, 'analytical_depth_threshold', 0.65)
+            
+            # Check minimum content length for usefulness
+            meets_length_requirement = content_length >= getattr(self.config, 'min_content_length', 300)
+            
+            # Professional writing quality assessment (higher standards)
+            professional_writing_score = (
+                quality_scores.analytical_depth + 
+                quality_scores.evidence_quality + 
+                quality_scores.critical_thinking + 
+                quality_scores.argument_structure
+            ) / 4.0
+            
+            professional_threshold = getattr(self.config, 'professional_writing_threshold', 0.65)
+            meets_professional = professional_writing_score >= professional_threshold
+            
+            # Theme relevance check
+            has_relevant_themes = False
+            if themes:
+                # Check if any theme has sufficient confidence
+                confident_themes = [t for t in themes if t.confidence >= 0.5]
+                has_relevant_themes = len(confident_themes) > 0
+                
+                # If target themes are specified, check alignment
+                if self.config.target_themes:
+                    theme_alignment = any(
+                        any(target.lower() in theme.name.lower() or 
+                             any(target.lower() in keyword.lower() for keyword in theme.keywords)
+                             for target in self.config.target_themes)
+                        for theme in confident_themes
+                    )
+                    has_relevant_themes = has_relevant_themes and theme_alignment
+            
+            # Intelligent curation decision logic
+            # 1. High-quality content: meets all criteria
+            high_quality = meets_quality and meets_relevance and meets_analytical_depth
+            
+            # 2. Good content: meets basic criteria with some flexibility
+            good_quality = (meets_quality or meets_relevance) and has_relevant_themes
+            
+            # 3. Specialized content: may not meet general criteria but has value
+            specialized_content = (
+                content_length > 200 and  # Has some substance
+                has_relevant_themes and   # Is relevant
+                any(theme.confidence > 0.6 for theme in themes)  # High-confidence theme
             )
-        )
-        
-        return should_curate
+            
+            # 4. Content length considerations
+            substantial_content = content_length >= self.config.min_content_length
+            
+            # Decision logic: curate if any criteria met
+            should_curate = False
+            curation_reasons = []
+            
+            if high_quality and substantial_content:
+                should_curate = True
+                curation_reasons.append("High quality with substantial content")
+            elif good_quality and substantial_content:
+                should_curate = True
+                curation_reasons.append("Good quality with substantial content")
+            elif specialized_content:
+                should_curate = True
+                curation_reasons.append("Specialized relevant content")
+            elif meets_quality and content_length > 150:  # Lower bar for short but quality content
+                should_curate = True
+                curation_reasons.append("Quality content despite length")
+            
+            if not should_curate:
+                curation_reasons.append("Did not meet minimum quality or relevance criteria")
+            
+            # Detailed debug logging
+            logger.info(f"Curation decision details:")
+            logger.info(f"  Quality scores: overall={quality_scores.overall:.2f}, relevance={quality_scores.relevance:.2f}")
+            logger.info(f"  Thresholds: quality={self.config.quality_threshold}, relevance={self.config.relevance_threshold}")
+            logger.info(f"  Meets quality: {meets_quality}, meets relevance: {meets_relevance}")
+            logger.info(f"  Themes: {len(themes)} found, relevant: {has_relevant_themes}")
+            logger.info(f"  Content length: {content_length} chars")
+            logger.info(f"  Final decision: {'CURATE' if should_curate else 'REJECT'}")
+            
+            # Log the decision
+            curation_reason = "; ".join(curation_reasons)
+            if should_curate:
+                logger.info(f"CURATING note: {curation_reason}")
+            else:
+                logger.info(f"REJECTING note: {curation_reason}")
+            
+            return should_curate
+            
+        except Exception as e:
+            logger.error(f"Error in curation decision logic: {e}")
+            # Default to curating on error to avoid losing content
+            return True
     
     def _create_curated_vault(self, curation_results: List[CurationResult], 
                              output_path: Path) -> CurationStats:
