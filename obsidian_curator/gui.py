@@ -39,6 +39,7 @@ class CurationWorker(QThread):
     stats_updated = pyqtSignal(dict)  # stats dictionary
     theme_updated = pyqtSignal(str, int)  # theme_name, count
     note_curated = pyqtSignal(dict)  # note data
+    triage_item_added = pyqtSignal(dict)  # triage item data
     finished = pyqtSignal(dict)  # final stats
     error_occurred = pyqtSignal(str)  # error message
     
@@ -90,6 +91,10 @@ class CurationWorker(QThread):
             self.progress_updated.emit(50, 100, "Performing AI analysis...")
             curation_results = curator._analyze_notes(processed_notes)
             
+            # Step 4.5: Deduplication
+            self.progress_updated.emit(75, 100, "Performing deduplication...")
+            curation_results = curator._deduplicate_results(curation_results)
+            
             # Log temporary directory info
             if hasattr(curator, '_temp_output_path'):
                 logger.info(f"Temporary directory created: {curator._temp_output_path}")
@@ -102,11 +107,31 @@ class CurationWorker(QThread):
             # Update stats from results
             curated_count = sum(1 for r in curation_results if r.is_curated)
             rejected_count = len(curation_results) - curated_count
+            triage_count = sum(1 for r in curation_results if r.needs_triage)
+            duplicate_count = sum(1 for r in curation_results if r.is_duplicate)
+            
             self.current_stats['curated_notes'] = curated_count
             self.current_stats['rejected_notes'] = rejected_count
+            self.current_stats['triage_count'] = triage_count
+            self.current_stats['duplicate_count'] = duplicate_count
             
-            # Update theme distribution
+            # Update theme distribution and emit signals
             for result in curation_results:
+                # Check for triage items
+                if result.needs_triage and result.triage_info:
+                    triage_data = {
+                        'title': result.note.title,
+                        'fingerprint': result.triage_info.get('fingerprint'),
+                        'scores': {
+                            'overall': result.quality_scores.overall,
+                            'relevance': result.quality_scores.relevance,
+                            'professional': result.quality_scores.professional_writing_score
+                        },
+                        'suggested_decision': result.triage_info.get('suggested_decision', 'unknown'),
+                        'reason': result.triage_info.get('reason', 'Unknown reason')
+                    }
+                    self.triage_item_added.emit(triage_data)
+                
                 if result.is_curated:
                     for theme in result.themes:
                         theme_name = theme.name
@@ -124,7 +149,11 @@ class CurationWorker(QThread):
                         'full_note': result.note,
                         'quality_scores': result.quality_scores,
                         'themes': result.themes,
-                        'content_structure': result.content_structure
+                        'content_structure': result.content_structure,
+                        'route_info': result.route_info,
+                        'is_duplicate': result.is_duplicate,
+                        'duplicate_info': result.duplicate_info,
+                        'needs_triage': result.needs_triage
                     }
                     
                     self.current_stats['curated_notes_list'].append(note_data)
@@ -436,6 +465,12 @@ class ObsidianCuratorGUI(QMainWindow):
         # Note Preview Tab
         self.create_note_preview_tab()
         
+        # Triage Tab
+        self.create_triage_tab()
+        
+        # Metrics Tab
+        self.create_metrics_tab()
+        
         parent_layout.addWidget(self.results_tabs)
     
     def create_theme_analysis_tab(self):
@@ -507,6 +542,96 @@ class ObsidianCuratorGUI(QMainWindow):
         layout.addWidget(splitter)
         self.results_tabs.addTab(tab, "Note Preview")
     
+    def create_triage_tab(self):
+        """Create the triage tab for human-in-the-loop decisions."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        # Header
+        header = QLabel("Borderline Triage - Human Decisions Required")
+        header.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        layout.addWidget(header)
+        
+        # Info label
+        info = QLabel("Notes in the gray zone around quality thresholds need your decision:")
+        layout.addWidget(info)
+        
+        # Triage list
+        self.triage_list = QListWidget()
+        layout.addWidget(self.triage_list)
+        
+        # Button layout
+        button_layout = QHBoxLayout()
+        self.keep_btn = QPushButton("Keep Selected")
+        self.keep_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        self.discard_btn = QPushButton("Discard Selected") 
+        self.discard_btn.setStyleSheet("background-color: #f44336; color: white; font-weight: bold;")
+        
+        button_layout.addWidget(self.keep_btn)
+        button_layout.addWidget(self.discard_btn)
+        button_layout.addStretch()
+        
+        layout.addLayout(button_layout)
+        
+        # Status
+        self.triage_status = QLabel("No items pending triage")
+        layout.addWidget(self.triage_status)
+        
+        self.results_tabs.addTab(tab, "Triage")
+        
+        # Connect buttons
+        self.keep_btn.clicked.connect(lambda: self.resolve_triage_item("keep"))
+        self.discard_btn.clicked.connect(lambda: self.resolve_triage_item("discard"))
+    
+    def create_metrics_tab(self):
+        """Create the metrics and performance tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        # Header
+        header = QLabel("Performance Metrics & Routing Information")
+        header.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        layout.addWidget(header)
+        
+        # Metrics display
+        self.metrics_text = QTextEdit()
+        self.metrics_text.setReadOnly(True)
+        self.metrics_text.setPlainText("Run curation to see performance metrics...")
+        layout.addWidget(self.metrics_text)
+        
+        self.results_tabs.addTab(tab, "Metrics")
+    
+    def resolve_triage_item(self, decision: str):
+        """Resolve a triage item with human decision."""
+        current_item = self.triage_list.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "No Selection", "Please select a triage item first.")
+            return
+        
+        # Get fingerprint from item data
+        item_data = current_item.data(Qt.ItemDataRole.UserRole)
+        if not item_data:
+            return
+        
+        fingerprint = item_data.get('fingerprint')
+        if not fingerprint:
+            return
+        
+        # TODO: Call curator to resolve triage item
+        # For now, just remove from list
+        row = self.triage_list.row(current_item)
+        self.triage_list.takeItem(row)
+        
+        # Update status
+        remaining = self.triage_list.count()
+        if remaining == 0:
+            self.triage_status.setText("No items pending triage")
+        else:
+            self.triage_status.setText(f"{remaining} items pending triage")
+        
+        QMessageBox.information(self, "Decision Recorded", 
+                               f"Decision '{decision}' recorded for: {item_data.get('title', 'Unknown')}")
+    
     def setup_connections(self):
         """Set up signal connections."""
         # Button connections
@@ -571,6 +696,7 @@ class ObsidianCuratorGUI(QMainWindow):
         self.worker.stats_updated.connect(self.on_stats_updated)
         self.worker.theme_updated.connect(self.on_theme_updated)
         self.worker.note_curated.connect(self.on_note_curated)
+        self.worker.triage_item_added.connect(self.on_triage_item_added)
         self.worker.finished.connect(self.on_curation_finished)
         self.worker.error_occurred.connect(self.on_error_occurred)
         
@@ -600,6 +726,9 @@ class ObsidianCuratorGUI(QMainWindow):
         self.theme_list.clear()
         self.notes_list.clear()
         self.note_preview.setPlainText("Select a note to preview...")
+        self.triage_list.clear()
+        self.triage_status.setText("No items pending triage")
+        self.metrics_text.setPlainText("Run curation to see performance metrics...")
         
         # Re-add theme list headers
         header_item = QListWidgetItem("Theme                    Count    Percentage")
@@ -663,6 +792,22 @@ class ObsidianCuratorGUI(QMainWindow):
         """Handle new curated note from worker."""
         self.current_stats['curated_notes_list'].append(note_data)
         self.update_notes_list()
+    
+    def on_triage_item_added(self, triage_data: Dict[str, Any]):
+        """Handle new triage item from worker."""
+        # Add item to triage list
+        item_text = f"{triage_data.get('title', 'Unknown')} - Scores: {triage_data.get('scores', {})}"
+        item = QListWidgetItem(item_text)
+        item.setData(Qt.ItemDataRole.UserRole, triage_data)
+        self.triage_list.addItem(item)
+        
+        # Update status
+        count = self.triage_list.count()
+        self.triage_status.setText(f"{count} items pending triage")
+        
+        # Switch to triage tab to show user
+        triage_tab_index = self.results_tabs.count() - 2  # Triage is second to last
+        self.results_tabs.setCurrentIndex(triage_tab_index)
     
     def on_curation_finished(self, final_stats: Dict[str, Any]):
         """Handle curation completion."""
