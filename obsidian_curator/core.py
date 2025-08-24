@@ -326,6 +326,39 @@ class ObsidianCurator:
                     progress = 20 + int((i / len(notes)) * 60)  # 20% to 80%
                     progress_callback(progress, f"Analyzing: {note.title[:30]}...")
                 try:
+                    # Pre-filter obviously low-value content before AI analysis
+                    if not self._is_worth_analyzing(note):
+                        # Create rejection result immediately
+                        from .models import QualityScore, ContentStructure
+                        default_scores = QualityScore(
+                            overall=0.1, relevance=0.1, completeness=0.1, 
+                            credibility=0.1, clarity=0.1,
+                            analytical_depth=0.1, evidence_quality=0.1, critical_thinking=0.1,
+                            argument_structure=0.1, practical_value=0.1
+                        )
+                        default_structure = ContentStructure(
+                            has_clear_problem=False, has_evidence=False, has_multiple_perspectives=False,
+                            has_actionable_conclusions=False, logical_flow_score=0.1,
+                            argument_coherence=0.1, conclusion_strength=0.1
+                        )
+                        result = CurationResult(
+                            note=note,
+                            cleaned_content=note.content,
+                            quality_scores=default_scores,
+                            themes=[],
+                            content_structure=default_structure,
+                            is_curated=False,
+                            curation_reason="Pre-filtered: Low-value content (minimal, personal, or non-professional)",
+                            processing_notes=["Rejected by pre-filter"],
+                            route_info=None,
+                            needs_triage=False,
+                            triage_info=None,
+                            is_duplicate=False,
+                            duplicate_info=None
+                        )
+                        curation_results.append(result)
+                        continue
+                    
                     # Perform AI analysis with enhanced metrics
                     analysis_result = self.ai_analyzer.analyze_note(note)
                     if len(analysis_result) == 5:
@@ -630,6 +663,107 @@ class ObsidianCurator:
         except Exception as e:
             logger.error(f"Error in curation decision for note: {e}")
             return False
+    
+    def _is_worth_analyzing(self, note: Note) -> bool:
+        """Pre-filter to determine if a note is worth AI analysis.
+        
+        Args:
+            note: Note to evaluate
+            
+        Returns:
+            True if note should be analyzed, False if it should be rejected immediately
+        """
+        title = note.title.lower()
+        content = note.content.lower() if note.content else ""
+        content_length = len(note.content.strip()) if note.content else 0
+        
+        # 1. Reject obviously personal/trivial content by title patterns
+        trivial_patterns = [
+            "sim card", "tarjeta sim", "host a .net", "host application",
+            "password", "login", "username", "wifi", "wi-fi",
+            "grocery", "shopping list", "todo", "to-do", "reminder",
+            "birthday", "anniversary", "personal", "diary", "journal",
+            "photo", "image", "screenshot", "selfie"
+        ]
+        
+        for pattern in trivial_patterns:
+            if pattern in title:
+                logger.info(f"Pre-filter rejection: Trivial title pattern '{pattern}' in '{note.title}'")
+                return False
+        
+        # 2. Reject minimal content that's clearly not valuable
+        if content_length < 50:
+            logger.info(f"Pre-filter rejection: Too short ({content_length} chars): '{note.title}'")
+            return False
+        
+        # 3. Reject content that's mostly attachments/links with no substance
+        if content_length < 200:
+            # Count meaningful words vs attachments/links
+            meaningful_words = len([word for word in content.split() 
+                                  if len(word) > 3 and not word.startswith('http') 
+                                  and '[[' not in word and '![[' not in word])
+            
+            if meaningful_words < 10:
+                logger.info(f"Pre-filter rejection: Minimal meaningful content ({meaningful_words} words): '{note.title}'")
+                return False
+        
+        # 4. Reject purely administrative/metadata content
+        admin_patterns = [
+            "scan", "scanned", "escaneado", "img_", "screenshot",
+            "untitled", "new note", "template", "example"
+        ]
+        
+        for pattern in admin_patterns:
+            if pattern in title and content_length < 300:
+                logger.info(f"Pre-filter rejection: Administrative pattern '{pattern}': '{note.title}'")
+                return False
+        
+        # 5. Content quality heuristics - reject obvious low-value content
+        if content_length > 100:
+            # Check for professional indicators
+            professional_indicators = [
+                "analysis", "strategy", "policy", "governance", "infrastructure",
+                "management", "development", "implementation", "framework",
+                "research", "study", "report", "assessment", "evaluation",
+                "planning", "project", "business", "economic", "financial",
+                "technical", "engineering", "construction", "procurement"
+            ]
+            
+            # Personal/non-professional indicators
+            personal_indicators = [
+                "i think", "i feel", "my opinion", "personally", "imho",
+                "just saying", "random thoughts", "quick note", "reminder",
+                "don't forget", "call mom", "buy", "grocery", "appointment"
+            ]
+            
+            professional_count = sum(1 for indicator in professional_indicators 
+                                   if indicator in content)
+            personal_count = sum(1 for indicator in personal_indicators 
+                               if indicator in content)
+            
+            # If clearly personal and no professional content, reject
+            if personal_count > 2 and professional_count == 0:
+                logger.info(f"Pre-filter rejection: Personal content pattern: '{note.title}'")
+                return False
+        
+        # 6. Language and formatting checks for professional content
+        if content_length > 50:
+            # Reject content that's mostly special characters or formatting
+            text_chars = sum(1 for c in content if c.isalnum() or c.isspace())
+            text_ratio = text_chars / len(content)
+            
+            if text_ratio < 0.7:  # Less than 70% actual text
+                logger.info(f"Pre-filter rejection: Too much formatting/symbols ({text_ratio:.2f} text ratio): '{note.title}'")
+                return False
+        
+        # 7. Check for completely extracted content that failed processing
+        if "![[" in content and content_length < 100:
+            # Mostly just attachment references
+            logger.info(f"Pre-filter rejection: Mostly attachments: '{note.title}'")
+            return False
+        
+        logger.debug(f"Pre-filter passed: '{note.title}' ({content_length} chars)")
+        return True
     
     def _save_note_immediately(self, result, output_path, theme_classifier):
         """Save a curated note immediately to disk to avoid losing work."""

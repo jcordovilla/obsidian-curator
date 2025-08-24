@@ -104,7 +104,7 @@ class ThemeClassifier:
             theme_name: Theme name to map
             
         Returns:
-            Mapped theme name from hierarchy
+            Mapped theme name from hierarchy (single level only)
         """
         theme_lower = theme_name.lower()
         
@@ -112,17 +112,17 @@ class ThemeClassifier:
         if theme_lower in self.theme_aliases:
             theme_lower = self.theme_aliases[theme_lower]
         
-        # Search through hierarchy
+        # Search through hierarchy - prefer main themes for single-level structure
         for main_theme, subthemes in self.theme_hierarchy.items():
-            # Check main theme
+            # Check main theme first
             if theme_lower in main_theme or main_theme in theme_lower:
                 return main_theme
             
-            # Check subthemes
+            # Check subthemes but map to main theme to avoid nested structure
             for subtheme, keywords in subthemes.items():
                 if (theme_lower in subtheme or subtheme in theme_lower or
                     any(keyword in theme_lower for keyword in keywords)):
-                    return f"{main_theme}/{subtheme}"
+                    return main_theme  # Return main theme instead of nested
         
         # If no match found, try fuzzy matching
         return self._fuzzy_theme_match(theme_lower)
@@ -146,19 +146,19 @@ class ThemeClassifier:
                 best_score = main_score
                 best_match = main_theme
             
-            # Check subtheme similarity
+            # Check subtheme similarity but map to main theme
             for subtheme, keywords in subthemes.items():
                 sub_score = self._calculate_similarity(theme_name, subtheme)
                 if sub_score > best_score:
                     best_score = sub_score
-                    best_match = f"{main_theme}/{subtheme}"
+                    best_match = main_theme  # Map to main theme for flat structure
                 
                 # Check keywords
                 for keyword in keywords:
                     keyword_score = self._calculate_similarity(theme_name, keyword)
                     if keyword_score > best_score:
                         best_score = keyword_score
-                        best_match = f"{main_theme}/{subtheme}"
+                        best_match = main_theme  # Map to main theme for flat structure
         
         # Only return match if similarity is above threshold
         if best_score > self.similarity_threshold:
@@ -203,18 +203,16 @@ class ThemeClassifier:
         # Create root directory
         output_path.mkdir(parents=True, exist_ok=True)
         
-        # Create theme folders
+        # Create theme folders (flat structure only)
         theme_folders = {}
         for theme_name in theme_groups.keys():
             if theme_name == "unknown":
                 continue
             
-            # Create nested folder structure for themes with subthemes
-            if "/" in theme_name:
-                main_theme, subtheme = theme_name.split("/", 1)
-                theme_path = output_path / main_theme / subtheme
-            else:
-                theme_path = output_path / theme_name
+            # Always create flat folder structure - no nested folders
+            # If theme_name has "/" somehow, just use the main part
+            clean_theme_name = theme_name.split("/")[0] if "/" in theme_name else theme_name
+            theme_path = output_path / clean_theme_name
             
             theme_path.mkdir(parents=True, exist_ok=True)
             theme_folders[theme_name] = theme_path

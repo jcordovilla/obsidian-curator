@@ -72,9 +72,11 @@ class CurationWorker(QThread):
                 self.error_occurred.emit("No notes found in input vault")
                 return
             
-            # Limit to sample size if specified
+            # Limit to sample size if specified - but get extra files in case some fail processing
             if self.config.sample_size:
-                file_paths = file_paths[:self.config.sample_size]
+                # Keep extra files to account for processing failures
+                target_sample_size = self.config.sample_size
+                file_paths = file_paths[:min(len(file_paths), target_sample_size * 3)]  # Get 3x to ensure we have enough
             
             self.current_stats['total_notes'] = len(file_paths)
             self.stats_updated.emit(self.current_stats.copy())
@@ -83,9 +85,24 @@ class CurationWorker(QThread):
             from .core import ObsidianCurator
             curator = ObsidianCurator(self.config)
             
-            # Step 3: Process notes
+            # Step 3: Process notes and ensure we get the target sample size
             self.progress_updated.emit(10, 100, f"Processing {len(file_paths)} notes...")
             processed_notes = curator._process_selected_notes(file_paths)
+            
+            # If we're doing a sample run, ensure we have exactly the target number
+            if self.config.sample_size and len(processed_notes) != self.config.sample_size:
+                if len(processed_notes) > self.config.sample_size:
+                    # Trim to exact sample size
+                    processed_notes = processed_notes[:self.config.sample_size]
+                    logger.info(f"Trimmed to exactly {self.config.sample_size} notes for sample run")
+                elif len(processed_notes) < self.config.sample_size:
+                    # Log the shortage
+                    logger.warning(f"Only processed {len(processed_notes)} notes, wanted {self.config.sample_size}")
+            
+            # Update stats with actual processed count
+            self.current_stats['total_notes'] = len(processed_notes)
+            self.stats_updated.emit(self.current_stats.copy())
+            
             self.progress_updated.emit(15, 100, f"Processed {len(processed_notes)} notes")
             
             # Step 4: AI analysis - this is the main time-consuming part
@@ -247,8 +264,10 @@ class CurationWorker(QThread):
         if self.config.sample_size:
             import random
             random.shuffle(valid_files)
-            # Only process the files we need for the sample
-            valid_files = valid_files[:self.config.sample_size * 2]  # Get more than needed in case some fail
+            # Get extra files to account for potential processing failures
+            # Aim for 5x the sample size to ensure we can get the exact number requested
+            safety_factor = max(5, self.config.sample_size // 2)  # At least 5x, but more for small samples
+            valid_files = valid_files[:self.config.sample_size * safety_factor]
         else:
             # Sort by modification time (newest first) for full runs
             valid_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)

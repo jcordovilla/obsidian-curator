@@ -100,6 +100,10 @@ class ContentProcessor:
         # Apply sanitization if configured
         clean_content = self._sanitize_content(clean_content)
         
+        # For web content, check if cleaning resulted in meaningful content
+        if content_type in [ContentType.WEB_CLIPPING] and clean_content:
+            clean_content = self._validate_web_content_quality(clean_content, file_path)
+        
         # Determine content type
         content_type = self._determine_content_type(metadata, clean_content)
         
@@ -260,6 +264,71 @@ class ContentProcessor:
         except Exception as e:
             logger.warning(f"Failed to apply boilerplate patterns: {e}")
         
+        return content
+    
+    def _validate_web_content_quality(self, content: str, file_path: Path) -> str:
+        """Validate that web content is meaningful after cleaning.
+        
+        Args:
+            content: Cleaned web content
+            file_path: Path to the original file
+            
+        Returns:
+            Validated content or empty string if content is poor quality
+        """
+        if not content or len(content.strip()) < 100:
+            logger.warning(f"Web content too short after cleaning: {file_path}")
+            return ""
+        
+        # Check for patterns that indicate mostly navigation/metadata
+        navigation_indicators = [
+            # Multiple empty parentheses or formatting artifacts
+            r'\(\)\s*\(\)\s*\(\)',
+            # Table formatting artifacts
+            r'\|\s*\|\s*\|\s*\|',
+            r':---:\s*\|\s*:---:',
+            # Contact/administrative info
+            r'mailto:.*@.*\.',
+            r'Publisher:\s*\(\)',
+            r'Editor-in-Chief:',
+            r'Managing Director:',
+            # Navigation artifacts
+            r'regions\s*\|\s*$',
+            r'careers.*objId.*type=article'
+        ]
+        
+        # Count navigation artifacts
+        navigation_count = sum(1 for pattern in navigation_indicators 
+                             if re.search(pattern, content, re.IGNORECASE))
+        
+        # Count meaningful words (excluding common web artifacts)
+        words = content.split()
+        meaningful_words = [word for word in words 
+                          if len(word) > 3 
+                          and word not in ['()', '|', ':---:', 'mailto:', 'objId']]
+        
+        # Calculate quality metrics
+        navigation_ratio = navigation_count / max(1, len(words) // 20)  # Per 20 words
+        meaningful_word_ratio = len(meaningful_words) / max(1, len(words))
+        
+        # Reject if content is mostly navigation/artifacts
+        if navigation_ratio > 0.3:  # More than 30% navigation artifacts
+            logger.warning(f"High navigation ratio ({navigation_ratio:.2f}) in web content: {file_path}")
+            return ""
+        
+        if meaningful_word_ratio < 0.5:  # Less than 50% meaningful words
+            logger.warning(f"Low meaningful word ratio ({meaningful_word_ratio:.2f}) in web content: {file_path}")
+            return ""
+        
+        # Check for repeated patterns that indicate failed extraction
+        lines = content.split('\n')
+        empty_lines = len([line for line in lines if not line.strip()])
+        if len(lines) > 10 and empty_lines / len(lines) > 0.7:  # More than 70% empty lines
+            logger.warning(f"Too many empty lines ({empty_lines}/{len(lines)}) in web content: {file_path}")
+            return ""
+        
+        # Content passes quality checks
+        logger.debug(f"Web content quality validated: {file_path} ({len(meaningful_words)} meaningful words)")
         return content
     
     def _determine_content_type(self, metadata: Dict[str, Any], content: str) -> ContentType:
@@ -569,8 +638,20 @@ class ContentProcessor:
             r'^\*\*\s*$',  # Empty bold markers
             r'^•\*\*\s*$',  # Bullet with empty bold
             
-            # Website navigation and menus
+            # Website navigation and menus - general patterns
             r'^Secciones$',  # Section headers
+            r'^\s*\|\s*\|\s*\|\s*\|\s*\|.*',  # Malformed table rows
+            r'^\s*:---:\s*\|\s*:---:\s*\|.*',  # Table separator rows
+            r'^\s*\|\s*$',  # Empty table cells
+            r'^\s*\(\)\s*\(\)\s*\(\).*',  # Empty parentheses patterns
+            r'^\s*\*\s*Other\s*Sections\s*\(\).*',  # Navigation sections
+            r'^\s*regions\s*\|\s*$',  # Region navigation
+            r'.*careers.*rt=1.*objId.*',  # Career links with tracking
+            r'.*mailto:.*@.*\.com.*',  # Email links patterns
+            r'^\s*Publisher:\s*\(\)\s*$',  # Empty publisher info
+            r'^\s*Editor-in-Chief:\s*\(mailto:.*',  # Editor contact info
+            r'^\s*Managing Director:\s*\(mailto:.*',  # Director contact info
+            r'^\s*Online news editor:\s*\(mailto:.*',  # Editor contact info
             r'^Casa Real.*',  # Royal family section
             r'^Madrid.*',  # Madrid section
             r'^Sevilla.*',  # Sevilla section
