@@ -479,11 +479,16 @@ class ObsidianCuratorGUI(QMainWindow):
         layout = QVBoxLayout(tab)
         
         # Header
-        header = QLabel("Theme Distribution")
+        header = QLabel("Theme Analysis")
         header.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         layout.addWidget(header)
         
-        # Theme list widget
+        # Info text
+        info = QLabel("Theme distribution and analysis will appear here after curation.")
+        info.setStyleSheet("color: #666; font-style: italic;")
+        layout.addWidget(info)
+        
+        # Theme list widget (hidden initially, shown when data available)
         self.theme_list = QListWidget()
         self.theme_list.setStyleSheet("""
             QListWidget {
@@ -491,6 +496,7 @@ class ObsidianCuratorGUI(QMainWindow):
                 font-size: 12px;
             }
         """)
+        self.theme_list.hide()  # Hide initially
         layout.addWidget(self.theme_list)
         
         # Add header to theme list
@@ -739,6 +745,9 @@ class ObsidianCuratorGUI(QMainWindow):
         separator_item.setFlags(separator_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         self.theme_list.addItem(separator_item)
         
+        # Hide theme list initially (will show when data is available)
+        self.theme_list.hide()
+        
         # Reset progress
         self.progress_bar.setValue(0)
         self.current_operation_label.setText("")
@@ -852,6 +861,14 @@ class ObsidianCuratorGUI(QMainWindow):
         """Update the theme analysis display."""
         themes = self.current_stats['themes_distribution']
         total_themed = sum(themes.values())
+        
+        if total_themed == 0:
+            # No themes yet, hide the list and show info
+            self.theme_list.hide()
+            return
+        
+        # Show the list and populate with data
+        self.theme_list.show()
         
         # Clear existing theme items (keep headers)
         while self.theme_list.count() > 2:
