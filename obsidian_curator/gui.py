@@ -72,47 +72,31 @@ class CurationWorker(QThread):
                 self.error_occurred.emit("No notes found in input vault")
                 return
             
-            # Limit to sample size if specified - but get extra files in case some fail processing
-            if self.config.sample_size:
-                # Keep extra files to account for processing failures
-                target_sample_size = self.config.sample_size
-                file_paths = file_paths[:min(len(file_paths), target_sample_size * 3)]  # Get 3x to ensure we have enough
-            
-            self.current_stats['total_notes'] = len(file_paths)
-            self.stats_updated.emit(self.current_stats.copy())
-            
             # Step 2: Create curator instance (same as CLI)
             from .core import ObsidianCurator
             curator = ObsidianCurator(self.config)
             
-            # Step 3: Process notes and ensure we get the target sample size
-            self.progress_updated.emit(10, 100, f"Processing {len(file_paths)} notes...")
-            processed_notes = curator._process_selected_notes(file_paths)
+            # Step 3: Use the proper curation flow (same as CLI)
+            # This ensures sample size is handled correctly
+            self.progress_updated.emit(10, 100, "Starting curation process...")
             
-            # If we're doing a sample run, ensure we have exactly the target number
-            if self.config.sample_size and len(processed_notes) != self.config.sample_size:
-                if len(processed_notes) > self.config.sample_size:
-                    # Trim to exact sample size
-                    processed_notes = processed_notes[:self.config.sample_size]
-                    logger.info(f"Trimmed to exactly {self.config.sample_size} notes for sample run")
-                elif len(processed_notes) < self.config.sample_size:
-                    # Log the shortage
-                    logger.warning(f"Only processed {len(processed_notes)} notes, wanted {self.config.sample_size}")
+            # Apply sample size selection (same logic as CLI)
+            if self.config.sample_size and len(file_paths) > self.config.sample_size:
+                import random
+                selected_paths = random.sample(file_paths, self.config.sample_size)
+                logger.info(f"Using random sample of {len(selected_paths)} notes from {len(file_paths)} available")
+                file_paths = selected_paths
             
-            # Update stats with actual processed count
-            self.current_stats['total_notes'] = len(processed_notes)
+            # Update stats with the actual number of notes to be processed
+            self.current_stats['total_notes'] = len(file_paths)
             self.stats_updated.emit(self.current_stats.copy())
-            
-            self.progress_updated.emit(15, 100, f"Processed {len(processed_notes)} notes")
-            
-            # Step 4: AI analysis - this is the main time-consuming part
-            self.progress_updated.emit(20, 100, "Starting AI analysis...")
             
             # Create progress callback for real-time updates
             def progress_callback(progress, message):
                 self.progress_updated.emit(progress, 100, message)
             
-            # Use the enhanced analysis method with progress callback
+            # Process notes first, then analyze
+            processed_notes = curator._process_selected_notes(file_paths)
             curation_results = curator._analyze_notes(processed_notes, progress_callback)
             
             # Step 4.5: Deduplication
@@ -261,19 +245,12 @@ class CurationWorker(QThread):
         
         valid_files = discover_markdown_files(self.input_path)
         
-        # For sample runs, randomly shuffle files BEFORE processing
-        if self.config.sample_size:
-            import random
-            random.shuffle(valid_files)
-            # Get extra files to account for potential processing failures
-            # Aim for 5x the sample size to ensure we can get the exact number requested
-            safety_factor = max(5, self.config.sample_size // 2)  # At least 5x, but more for small samples
-            valid_files = valid_files[:self.config.sample_size * safety_factor]
-        else:
-            # Sort by modification time (newest first) for full runs
-            valid_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        # Let the core handle sample size selection (same as CLI)
+        # Just shuffle for randomness, but don't limit here
+        import random
+        random.shuffle(valid_files)
         
-        # Return file paths directly (CLI will process them)
+        # Return all discovered files - core will handle sample size
         return valid_files
     
     def stop(self):
@@ -495,6 +472,9 @@ class ObsidianCuratorGUI(QMainWindow):
         # Triage Tab
         self.create_triage_tab()
         
+        # Rejected Notes Tab
+        self.create_rejected_notes_tab()
+        
         # Metrics Tab
         self.create_metrics_tab()
         
@@ -616,6 +596,44 @@ class ObsidianCuratorGUI(QMainWindow):
         self.keep_btn.clicked.connect(lambda: self.resolve_triage_item("keep"))
         self.discard_btn.clicked.connect(lambda: self.resolve_triage_item("discard"))
     
+    def create_rejected_notes_tab(self):
+        """Create the rejected notes tab."""
+        tab = QWidget()
+        layout = QHBoxLayout(tab)
+        
+        # Left side: Rejected notes list
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        
+        rejected_header = QLabel("Rejected Notes")
+        rejected_header.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        left_layout.addWidget(rejected_header)
+        
+        self.rejected_notes_list = QListWidget()
+        left_layout.addWidget(self.rejected_notes_list)
+        
+        # Right side: Rejection details
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        
+        details_header = QLabel("Rejection Details")
+        details_header.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        right_layout.addWidget(details_header)
+        
+        self.rejection_details = QTextEdit()
+        self.rejection_details.setReadOnly(True)
+        self.rejection_details.setPlainText("Select a rejected note to see rejection details...")
+        right_layout.addWidget(self.rejection_details)
+        
+        # Create splitter
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(left_widget)
+        splitter.addWidget(right_widget)
+        splitter.setSizes([300, 400])
+        
+        layout.addWidget(splitter)
+        self.results_tabs.addTab(tab, "Rejected Notes")
+    
     def create_metrics_tab(self):
         """Create the metrics and performance tab."""
         tab = QWidget()
@@ -675,6 +693,7 @@ class ObsidianCuratorGUI(QMainWindow):
         
         # Note list selection
         self.notes_list.itemClicked.connect(self.on_note_selected)
+        self.rejected_notes_list.itemClicked.connect(self.on_rejected_note_selected)
     
     def browse_source_path(self):
         """Open dialog to select source vault path."""
@@ -759,6 +778,8 @@ class ObsidianCuratorGUI(QMainWindow):
         self.theme_list.clear()
         self.notes_list.clear()
         self.note_preview.setPlainText("Select a note to preview...")
+        self.rejected_notes_list.clear()
+        self.rejection_details.setPlainText("Select a rejected note to see rejection details...")
         self.triage_list.clear()
         self.triage_status.setText("No items pending triage")
         self.metrics_text.setPlainText("Run curation to see performance metrics...")
@@ -786,7 +807,8 @@ class ObsidianCuratorGUI(QMainWindow):
             'rejected_notes': 0,
             'processing_time': 0,
             'themes_distribution': {},
-            'curated_notes_list': []
+            'curated_notes_list': [],
+            'rejected_notes_list': []
         }
         self.update_stats_display()
     
@@ -801,6 +823,8 @@ class ObsidianCuratorGUI(QMainWindow):
         """Handle progress update from worker."""
         # Current is already a percentage (0-100)
         percentage = current if current <= 100 else int((current / total * 100)) if total > 0 else 0
+        
+        # Ensure we're updating the UI in the main thread
         self.progress_bar.setValue(percentage)
         
         # Show ETA for real progress updates (not static step markers)
@@ -816,6 +840,9 @@ class ObsidianCuratorGUI(QMainWindow):
         
         self.progress_label.setText(f"Progress: {percentage}%{eta_text}")
         self.current_operation_label.setText(current_note)
+        
+        # Force a UI update
+        self.progress_bar.repaint()
     
     def on_stats_updated(self, stats: Dict[str, Any]):
         """Handle stats update from worker."""
@@ -886,6 +913,9 @@ class ObsidianCuratorGUI(QMainWindow):
         rejected = stats['rejected_notes']
         rejected_pct = (rejected / total * 100) if total > 0 else 0
         self.rejected_notes_label.setText(f"Rejected: {rejected} ({rejected_pct:.0f}%)")
+        
+        # Update the rejected notes list
+        self.update_rejected_notes_list()
     
     def update_theme_display(self):
         """Update the theme analysis display."""
@@ -924,12 +954,29 @@ class ObsidianCuratorGUI(QMainWindow):
             item.setData(Qt.ItemDataRole.UserRole, note_data)
             self.notes_list.addItem(item)
     
+    def update_rejected_notes_list(self):
+        """Update the rejected notes list."""
+        # Clear and repopulate
+        self.rejected_notes_list.clear()
+        
+        for note_data in self.current_stats.get('rejected_notes_list', []):
+            item = QListWidgetItem(f"❌ {note_data.get('title', 'Untitled')}")
+            item.setData(Qt.ItemDataRole.UserRole, note_data)
+            self.rejected_notes_list.addItem(item)
+    
     def on_note_selected(self, item: QListWidgetItem):
         """Handle note selection in the notes list."""
         note_data = item.data(Qt.ItemDataRole.UserRole)
         if note_data:
             preview_text = self.format_note_preview(note_data)
             self.note_preview.setPlainText(preview_text)
+    
+    def on_rejected_note_selected(self, item: QListWidgetItem):
+        """Handle rejected note selection in the rejected notes list."""
+        note_data = item.data(Qt.ItemDataRole.UserRole)
+        if note_data:
+            details_text = self.format_rejection_details(note_data)
+            self.rejection_details.setPlainText(details_text)
     
     def format_note_preview(self, note_data: Dict[str, Any]) -> str:
         """Format note data for preview display."""
@@ -947,6 +994,34 @@ Professional Score: {professional_score:.1f}/10
 ───────────────────────────────────────
 
 {content_preview}"""
+    
+    def format_rejection_details(self, note_data: Dict[str, Any]) -> str:
+        """Format rejected note data for details display."""
+        title = note_data.get('title', 'Untitled')
+        rejection_reason = note_data.get('rejection_reason', 'No reason provided')
+        quality_scores = note_data.get('quality_scores', {})
+        content_preview = note_data.get('content_preview', '')[:500] + '...' if len(note_data.get('content_preview', '')) > 500 else note_data.get('content_preview', '')
+        
+        details = f"""Title: {title}
+
+Rejection Reason: {rejection_reason}
+
+Quality Scores:
+"""
+        
+        if quality_scores:
+            for score_name, score_value in quality_scores.items():
+                if isinstance(score_value, (int, float)):
+                    details += f"  {score_name.replace('_', ' ').title()}: {score_value:.2f}/1.0\n"
+        
+        details += f"""
+
+Content Preview:
+───────────────────────────────────────
+
+{content_preview}"""
+        
+        return details
     
     def update_time_display(self):
         """Update the time display."""
