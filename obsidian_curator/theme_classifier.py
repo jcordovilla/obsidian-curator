@@ -127,6 +127,33 @@ class ThemeClassifier:
         # If no match found, try fuzzy matching
         return self._fuzzy_theme_match(theme_lower)
     
+    def _ensure_flat_structure(self, theme_name: str) -> str:
+        """Ensure theme name results in flat folder structure.
+        
+        Args:
+            theme_name: Theme name to flatten
+            
+        Returns:
+            Flattened theme name (main category only)
+        """
+        # If theme contains "/", take only the first part
+        if "/" in theme_name:
+            return theme_name.split("/")[0]
+        
+        # If theme contains " - ", take only the first part
+        if " - " in theme_name:
+            return theme_name.split(" - ")[0]
+        
+        # If theme contains ":", take only the first part
+        if ":" in theme_name:
+            return theme_name.split(":")[0]
+        
+        # If theme contains "(", take only the first part
+        if "(" in theme_name:
+            return theme_name.split("(")[0].strip()
+        
+        return theme_name
+    
     def _fuzzy_theme_match(self, theme_name: str) -> str:
         """Perform fuzzy matching for theme names.
         
@@ -210,8 +237,7 @@ class ThemeClassifier:
                 continue
             
             # Always create flat folder structure - no nested folders
-            # If theme_name has "/" somehow, just use the main part
-            clean_theme_name = theme_name.split("/")[0] if "/" in theme_name else theme_name
+            clean_theme_name = self._ensure_flat_structure(theme_name)
             theme_path = output_path / clean_theme_name
             
             theme_path.mkdir(parents=True, exist_ok=True)

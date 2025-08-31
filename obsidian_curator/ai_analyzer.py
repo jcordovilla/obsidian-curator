@@ -1,6 +1,7 @@
 """AI-powered content analysis using Ollama."""
 
 import json
+import re
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 
@@ -504,6 +505,15 @@ class AIAnalyzer:
             logger.debug(f"Short content quality analysis: overall={result.overall}, relevance={result.relevance}")
             return result
         
+        # Content validation before AI analysis
+        if not self._validate_content_for_quality_analysis(content):
+            logger.warning(f"Content validation failed for note '{note.title}' - content appears to be garbage")
+            return QualityScore(
+                overall=0.1, relevance=0.1, completeness=0.1, credibility=0.1, clarity=0.1,
+                analytical_depth=0.1, evidence_quality=0.1, critical_thinking=0.1,
+                argument_structure=0.1, practical_value=0.1
+            )
+        
         # Try AI analysis first
         try:
             logger.debug(f"Attempting AI quality analysis for note: {note.title}")
@@ -520,6 +530,52 @@ class AIAnalyzer:
             weighted_heuristic = self._apply_content_type_weights(heuristic_result, note.content_type)
             logger.debug(f"Heuristic quality analysis: overall={weighted_heuristic.overall}, relevance={weighted_heuristic.relevance}")
             return weighted_heuristic
+    
+    def _validate_content_for_quality_analysis(self, content: str) -> bool:
+        """Validate that content is suitable for quality analysis.
+        
+        Args:
+            content: Content to validate
+            
+        Returns:
+            True if content is valid for analysis
+        """
+        if not content or len(content.strip()) < 100:
+            return False
+        
+        # Check for garbage content patterns
+        garbage_patterns = [
+            r'### Comparte Esta Noticia',
+            r'### Share This',
+            r'<share\?url=',
+            r'whatsapp://send\?text=',
+            r'### \s*$',  # Empty headers
+            r'^\s*\.\s*$',  # Lines with just periods
+            r'^\s*\*\*\s*$',  # Empty bold markers
+            r'^\s*\(\s*\)\s*$',  # Empty parentheses
+            r'\(\)\s*\(\)\s*\(\)',  # Multiple empty parentheses
+            r'\|\s*\|\s*\|\s*\|',  # Table formatting artifacts
+        ]
+        
+        for pattern in garbage_patterns:
+            if re.search(pattern, content, re.MULTILINE | re.IGNORECASE):
+                return False
+        
+        # Check for excessive repetition
+        lines = content.split('\n')
+        unique_lines = set(line.strip() for line in lines if line.strip())
+        if len(lines) > 10 and len(unique_lines) < len(lines) * 0.3:
+            return False
+        
+        # Check for meaningful content (not just navigation/boilerplate)
+        meaningful_words = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']
+        content_words = content.lower().split()
+        if len(content_words) > 20:
+            meaningful_count = sum(1 for word in content_words if word not in meaningful_words)
+            if meaningful_count < len(content_words) * 0.4:
+                return False
+        
+        return True
     
     def _ai_analyze_quality(self, note: Note, content: str) -> QualityScore:
         """Use AI to analyze content quality."""

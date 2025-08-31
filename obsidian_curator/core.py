@@ -327,6 +327,11 @@ class ObsidianCurator:
                 if progress_callback:
                     progress = 20 + int((i / len(notes)) * 60)  # 20% to 80%
                     progress_callback(progress, f"Analyzing: {note.title[:30]}...")
+                    logger.debug(f"Progress callback: {progress}% - {note.title[:30]}...")
+                    
+                    # Also emit a progress update at the start of each analysis step
+                    if progress_callback:
+                        progress_callback(progress + 1, f"Starting analysis of: {note.title[:30]}...")
                 try:
                     # Pre-filter obviously low-value content before AI analysis
                     if not self._is_worth_analyzing(note):
@@ -582,6 +587,18 @@ class ObsidianCurator:
             # Check minimum content length for usefulness
             meets_length_requirement = content_length >= min_content_length
             
+            # Content quality validation - reject notes with poor content structure
+            content_quality_issues = []
+            if quality_scores.analytical_depth < 0.3:
+                content_quality_issues.append("Very low analytical depth")
+            if quality_scores.critical_thinking < 0.25:
+                content_quality_issues.append("Very low critical thinking")
+            if quality_scores.evidence_quality < 0.25:
+                content_quality_issues.append("Very low evidence quality")
+            
+            # Reject if multiple critical quality issues
+            has_critical_quality_issues = len(content_quality_issues) >= 2
+            
             # Professional writing quality assessment (higher standards)
             professional_writing_score = (
                 quality_scores.analytical_depth + 
@@ -635,7 +652,11 @@ class ObsidianCurator:
             should_curate = False
             curation_reasons = []
             
-            if high_quality and substantial_content:
+            # First check: reject if critical quality issues
+            if has_critical_quality_issues:
+                should_curate = False
+                curation_reasons.append(f"Critical quality issues: {', '.join(content_quality_issues)}")
+            elif high_quality and substantial_content:
                 should_curate = True
                 curation_reasons.append("High quality with substantial content")
             elif good_quality and substantial_content:
@@ -844,7 +865,7 @@ tags:
         
         content += "## Identified Themes\n\n"
         for theme in themes:
-            content += f"- **{theme.name}** (confidence: {theme.confidence:.2f})\n"
+            content += f"- **{theme.name}**\n"
         
         content += "\n## Content\n\n"
         content += note.content

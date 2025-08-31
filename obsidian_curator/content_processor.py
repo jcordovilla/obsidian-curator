@@ -342,6 +342,12 @@ class ContentProcessor:
             logger.warning(f"Web content too short after cleaning: {file_path}")
             return ""
         
+        # Use enhanced content quality validation
+        is_valid, reason = self._validate_content_quality(content)
+        if not is_valid:
+            logger.warning(f"Content quality validation failed: {reason} - {file_path}")
+            return ""
+        
         # Check for patterns that indicate mostly navigation/metadata
         navigation_indicators = [
             # Multiple empty parentheses or formatting artifacts
@@ -674,6 +680,50 @@ class ContentProcessor:
         cleaned_content = self._final_text_cleanup(cleaned_content)
         
         return cleaned_content
+
+    def _validate_content_quality(self, content: str) -> Tuple[bool, str]:
+        """Validate that content has meaningful substance.
+        
+        Args:
+            content: Content to validate
+            
+        Returns:
+            Tuple of (is_valid, reason)
+        """
+        if not content or len(content.strip()) < 50:
+            return False, "Content too short"
+        
+        # Check for garbage content patterns
+        garbage_patterns = [
+            r'### Comparte Esta Noticia',
+            r'### Share This',
+            r'<share\?url=',
+            r'whatsapp://send\?text=',
+            r'### \s*$',  # Empty headers
+            r'^\s*\.\s*$',  # Lines with just periods
+            r'^\s*\*\*\s*$',  # Empty bold markers
+            r'^\s*\(\s*\)\s*$',  # Empty parentheses
+        ]
+        
+        for pattern in garbage_patterns:
+            if re.search(pattern, content, re.MULTILINE | re.IGNORECASE):
+                return False, f"Contains garbage pattern: {pattern}"
+        
+        # Check for excessive repetition
+        lines = content.split('\n')
+        unique_lines = set(line.strip() for line in lines if line.strip())
+        if len(lines) > 10 and len(unique_lines) < len(lines) * 0.3:
+            return False, "Excessive line repetition"
+        
+        # Check for meaningful content (not just navigation/boilerplate)
+        meaningful_words = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']
+        content_words = content.lower().split()
+        if len(content_words) > 20:
+            meaningful_count = sum(1 for word in content_words if word not in meaningful_words)
+            if meaningful_count < len(content_words) * 0.4:
+                return False, "Insufficient meaningful content"
+        
+        return True, "Content is valid"
     
     def _clean_markdown_web_content(self, content: str) -> str:
         """Clean web clutter from markdown content while preserving article content."""
